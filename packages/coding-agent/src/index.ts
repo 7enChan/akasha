@@ -230,12 +230,16 @@ export {
 } from "./core/session-manager.js";
 export {
 	type AkashaActionGateSettings,
+	type AkashaGatewaySettings,
+	type AkashaGatewayTelegramSettings,
 	type AkashaMaintenanceSettings,
 	type AkashaSettings,
 	type CompactionSettings,
 	type ImageSettings,
 	type PackageSource,
 	type ResolvedAkashaActionGateSettings,
+	type ResolvedAkashaGatewaySettings,
+	type ResolvedAkashaGatewayTelegramSettings,
 	type ResolvedAkashaMaintenanceSettings,
 	type ResolvedAkashaSettings,
 	type RetrySettings,
@@ -302,6 +306,21 @@ export {
 	type WriteToolOptions,
 	withFileMutationQueue,
 } from "./core/tools/index.js";
+export {
+	type AkashaGatewayAgentResult,
+	type AkashaGatewayAgentRunInput,
+	type AkashaGatewayAgentRunner,
+	type AkashaGatewayChatState,
+	type AkashaGatewayConfig,
+	type AkashaGatewayConfigStatus,
+	type AkashaGatewayIncomingMessage,
+	type AkashaGatewayMode,
+	type AkashaGatewayPlatform,
+	type AkashaGatewayPlatformAdapter,
+	AkashaGatewayRunner,
+	DefaultAkashaGatewayAgentRunner,
+	resolveAkashaGatewayConfig,
+} from "./gateway/index.js";
 // Main entry point
 export { type MainOptions, main } from "./main.js";
 // Run modes for programmatic SDK usage

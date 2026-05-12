@@ -15,6 +15,14 @@ akasha
 
 The `akasha` command is the canonical entrypoint. Runtime state lives under `.akasha/settings.json` for a project and `~/.akasha/agent/settings.json` globally.
 
+Akasha can also run as a Telegram gateway for always-on IM access:
+
+```bash
+akasha gateway setup
+akasha gateway status
+akasha gateway
+```
+
 For the Akasha guide, see [packages/coding-agent/docs/akasha.md](packages/coding-agent/docs/akasha.md).
 
 ## Runtime

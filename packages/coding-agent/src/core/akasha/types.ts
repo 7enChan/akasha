@@ -55,6 +55,15 @@ export type AkashaEventKind =
 	| "preference.inferred"
 	| "failure.lesson_learned"
 	| "workflow.optimized"
+	| "gateway.started"
+	| "gateway.stopped"
+	| "gateway.update.received"
+	| "gateway.message.accepted"
+	| "gateway.message.rejected"
+	| "gateway.reply.sent"
+	| "gateway.delivery.failed"
+	| "gateway.command.executed"
+	| "gateway.callback.delivered"
 	| "event.redacted";
 
 export type AkashaActor = "user" | "agent" | "tool" | "system";

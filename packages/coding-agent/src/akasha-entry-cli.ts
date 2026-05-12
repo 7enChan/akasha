@@ -15,6 +15,15 @@ import {
 import { buildAkashaSessionIndex } from "./core/akasha/session-index.js";
 import type { AkashaStore } from "./core/akasha/types.js";
 import { SettingsManager } from "./core/settings-manager.js";
+import { resolveAkashaGatewayConfig } from "./gateway/config.js";
+import { resolveAkashaGatewayEnvPath } from "./gateway/env.js";
+import { createAkashaGatewayRunnerFromSettings } from "./gateway/runner.js";
+import {
+	installAkashaGatewayUserService,
+	readAkashaGatewayJournal,
+	runAkashaGatewaySystemctl,
+	uninstallAkashaGatewayUserService,
+} from "./gateway/systemd.js";
 
 export async function handleAkashaEntrypointCommand(args: string[], cwd: string): Promise<boolean> {
 	const [command] = args;
@@ -24,7 +33,8 @@ export async function handleAkashaEntrypointCommand(args: string[], cwd: string)
 		command !== "status" &&
 		command !== "doctor" &&
 		command !== "daemon" &&
-		command !== "cache"
+		command !== "cache" &&
+		command !== "gateway"
 	) {
 		return false;
 	}
@@ -48,9 +58,19 @@ export async function handleAkashaEntrypointCommand(args: string[], cwd: string)
 		return true;
 	}
 
+	if (command === "gateway") {
+		await handleAkashaGatewayCommand(args.slice(1), cwd, agentDir, settingsManager);
+		return true;
+	}
+
 	if (command === "doctor") {
+		const settings = settingsManager.getAkashaSettings();
+		const gateway = resolveAkashaGatewayConfig({ agentDir, cwd, settings });
 		console.log("Akasha doctor");
 		console.log(chalk.green("Runtime paths: Akasha-only"));
+		console.log(`Gateway: ${gateway.ok ? "ready" : "not ready"}`);
+		if (gateway.missing.length > 0) console.log(`Gateway missing: ${gateway.missing.join(", ")}`);
+		if (gateway.warnings.length > 0) console.log(`Gateway warnings: ${gateway.warnings.join("; ")}`);
 		return true;
 	}
 
@@ -86,13 +106,15 @@ function printAkashaEntrypointHelp(command?: string): void {
 			? "akasha daemon status|tick|run [--scope current|project|all] [--dispatch record_only|terminal_notification|agent_prompt_file]"
 			: command === "cache"
 				? "akasha cache status|clear|rebuild [--scope current|project|all]"
-				: command === "doctor"
-					? "akasha doctor"
-					: command === "status"
-						? "akasha status"
-						: command === "enable"
-							? "akasha enable [--global]"
-							: "akasha init [--global]";
+				: command === "gateway"
+					? "akasha gateway [setup|status|run|install|uninstall|start|stop|logs]"
+					: command === "doctor"
+						? "akasha doctor"
+						: command === "status"
+							? "akasha status"
+							: command === "enable"
+								? "akasha enable [--global]"
+								: "akasha init [--global]";
 	console.log(`${chalk.bold("Akasha")} - time-native coding agent
 
 ${chalk.bold("Usage:")}
@@ -105,12 +127,121 @@ ${chalk.bold("Commands:")}
   akasha doctor             Check Akasha runtime health
   akasha daemon ...         Run Akasha daemon operations outside a session
   akasha cache ...          Inspect or rebuild Akasha projection caches
+  akasha gateway ...        Run the Telegram gateway and Linux service helpers
   akasha                    Start the agent runtime
 
 By default init writes project settings at ${CONFIG_DIR_NAME}/settings.json.
 Use --global to write ${CONFIG_DIR_NAME}/agent/settings.json instead.
 
 Akasha stores local runtime state in ${CONFIG_DIR_NAME}.`);
+}
+
+async function handleAkashaGatewayCommand(
+	args: string[],
+	cwd: string,
+	agentDir: string,
+	settingsManager: SettingsManager,
+): Promise<void> {
+	const action = args[0] ?? "run";
+	if (action === "setup") {
+		settingsManager.applyAkashaGatewayPreset(cwd, "global");
+		await settingsManager.flush();
+		console.log(chalk.green("Akasha gateway settings written to global settings."));
+		console.log(chalk.dim(`Secrets file: ${resolveAkashaGatewayEnvPath(agentDir)}`));
+		console.log("Add at least:");
+		console.log("TELEGRAM_BOT_TOKEN=...");
+		console.log("TELEGRAM_ALLOWED_USERS=123456789");
+		console.log("TELEGRAM_HOME_CHAT=123456789");
+		return;
+	}
+
+	const settings = settingsManager.getAkashaSettings();
+	const status = resolveAkashaGatewayConfig({ agentDir, cwd, settings });
+
+	if (action === "status" && args.includes("--user")) {
+		const result = runAkashaGatewaySystemctl("status");
+		console.log(result.output || `systemctl status exited with ${result.status}`);
+		return;
+	}
+
+	if (action === "status") {
+		console.log("Akasha gateway status");
+		console.log(`- configured: ${status.ok}`);
+		console.log(`- enabled: ${status.config.enabled}`);
+		console.log(`- telegram: ${status.config.telegram.enabled}`);
+		console.log(`- mode: ${status.config.telegram.mode}`);
+		console.log(`- default cwd: ${status.config.defaultCwd}`);
+		console.log(`- allowed users: ${status.config.telegram.allowedUsers.size}`);
+		console.log(`- home chat: ${status.config.telegram.homeChatId ?? "(missing)"}`);
+		if (status.missing.length > 0) console.log(`- missing: ${status.missing.join(", ")}`);
+		if (status.warnings.length > 0) console.log(`- warnings: ${status.warnings.join("; ")}`);
+		console.log(chalk.dim(`Secrets file: ${resolveAkashaGatewayEnvPath(agentDir)}`));
+		return;
+	}
+
+	if (action === "install") {
+		if (!args.includes("--user")) {
+			console.log("Only user-level systemd install is supported: akasha gateway install --user");
+			return;
+		}
+		const result = installAkashaGatewayUserService({
+			agentDir,
+			cwd: status.config.defaultCwd,
+			dryRun: args.includes("--dry-run"),
+		});
+		console.log(result.written ? "Akasha gateway user service installed." : "Akasha gateway user service dry run.");
+		console.log(`- path: ${result.path}`);
+		if (!result.written) console.log(result.content);
+		return;
+	}
+
+	if (action === "uninstall") {
+		if (!args.includes("--user")) {
+			console.log("Only user-level systemd uninstall is supported: akasha gateway uninstall --user");
+			return;
+		}
+		console.log(
+			uninstallAkashaGatewayUserService() ? "Akasha gateway user service removed." : "No user service found.",
+		);
+		return;
+	}
+
+	if (action === "start" || action === "stop") {
+		if (!args.includes("--user")) {
+			console.log(`Use akasha gateway ${action} --user for the systemd user service.`);
+			return;
+		}
+		const result = runAkashaGatewaySystemctl(action);
+		console.log(result.output || `systemctl ${action} exited with ${result.status}`);
+		return;
+	}
+
+	if (action === "logs") {
+		if (!args.includes("--user")) {
+			console.log("Use akasha gateway logs --user for the systemd user service.");
+			return;
+		}
+		const result = readAkashaGatewayJournal();
+		console.log(result.output || `journalctl exited with ${result.status}`);
+		return;
+	}
+
+	if (action !== "run") {
+		console.log("Usage: akasha gateway [setup|status|run|install|uninstall|start|stop|logs]");
+		return;
+	}
+
+	const created = createAkashaGatewayRunnerFromSettings({ agentDir, cwd, settings });
+	if (!created.runner) {
+		console.log("Akasha gateway is not ready.");
+		if (created.status.missing.length > 0) console.log(`Missing: ${created.status.missing.join(", ")}`);
+		if (created.status.warnings.length > 0) console.log(`Warnings: ${created.status.warnings.join("; ")}`);
+		process.exitCode = 1;
+		return;
+	}
+
+	console.log("Starting Akasha gateway. Press Ctrl+C to stop.");
+	await created.runner.start();
 }
 
 async function handleAkashaDaemonCommand(

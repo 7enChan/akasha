@@ -119,6 +119,30 @@ describe("Akasha entry CLI", () => {
 		expect(logs.join("\n")).toContain("Akasha cache rebuild");
 		expect(logs.join("\n")).toContain("- rebuilt: 1");
 	});
+
+	it("sets up and reports gateway configuration", async () => {
+		const handledSetup = await handleAkashaEntrypointCommand(["gateway", "setup"], projectDir);
+		logs = [];
+		const handledStatus = await handleAkashaEntrypointCommand(["gateway", "status"], projectDir);
+		const settings = JSON.parse(readFileSync(join(process.env.AKASHA_CODING_AGENT_DIR!, "settings.json"), "utf-8"));
+
+		expect(handledSetup).toBe(true);
+		expect(handledStatus).toBe(true);
+		expect(settings.akasha.gateway).toMatchObject({
+			enabled: true,
+			defaultCwd: projectDir,
+			platforms: {
+				telegram: {
+					enabled: true,
+					mode: "polling",
+					botTokenEnv: "TELEGRAM_BOT_TOKEN",
+					allowedUsersEnv: "TELEGRAM_ALLOWED_USERS",
+				},
+			},
+		});
+		expect(logs.join("\n")).toContain("Akasha gateway status");
+		expect(logs.join("\n")).toContain("TELEGRAM_BOT_TOKEN");
+	});
 });
 
 function seedAkashaLog(projectDir: string): JsonlAkashaStore {

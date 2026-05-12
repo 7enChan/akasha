@@ -213,6 +213,7 @@ ${chalk.bold("Commands:")}
   ${APP_NAME} doctor                     Check Akasha runtime health
   ${APP_NAME} daemon ...                 Run daemon operations outside a session
   ${APP_NAME} cache ...                  Inspect or rebuild projection caches
+  ${APP_NAME} gateway ...                Run Telegram gateway and Linux service helpers
   ${APP_NAME} install <source> [-l]     Install extension source and add to settings
   ${APP_NAME} remove <source> [-l]      Remove extension source from settings
   ${APP_NAME} uninstall <source> [-l]   Alias for remove

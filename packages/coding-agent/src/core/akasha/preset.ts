@@ -33,6 +33,15 @@ export function createAkashaDogfoodPreset(): AkashaSettings {
 		privacy: {
 			redactSecrets: true,
 		},
+		gateway: {
+			enabled: false,
+			platforms: {
+				telegram: {
+					enabled: false,
+					mode: "polling",
+				},
+			},
+		},
 	};
 }
 
@@ -59,6 +68,18 @@ export function mergeAkashaSettings(base: AkashaSettings | undefined, override: 
 		privacy: {
 			...(base?.privacy ?? {}),
 			...(override.privacy ?? {}),
+		},
+		gateway: {
+			...(base?.gateway ?? {}),
+			...(override.gateway ?? {}),
+			platforms: {
+				...(base?.gateway?.platforms ?? {}),
+				...(override.gateway?.platforms ?? {}),
+				telegram: {
+					...(base?.gateway?.platforms?.telegram ?? {}),
+					...(override.gateway?.platforms?.telegram ?? {}),
+				},
+			},
 		},
 	};
 }

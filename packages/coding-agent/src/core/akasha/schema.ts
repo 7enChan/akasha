@@ -59,6 +59,15 @@ export const KNOWN_AKASHA_EVENT_KINDS = new Set<AkashaEventKind>([
 	"preference.inferred",
 	"failure.lesson_learned",
 	"workflow.optimized",
+	"gateway.started",
+	"gateway.stopped",
+	"gateway.update.received",
+	"gateway.message.accepted",
+	"gateway.message.rejected",
+	"gateway.reply.sent",
+	"gateway.delivery.failed",
+	"gateway.command.executed",
+	"gateway.callback.delivered",
 	"event.redacted",
 ]);
 

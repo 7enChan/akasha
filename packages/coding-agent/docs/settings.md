@@ -131,6 +131,13 @@ Use `akasha init --global` to write the preset to global settings instead of the
 | `akasha.maintenance.heartbeatIntervalMinutes` | number | `30` | Heartbeat maintenance interval in minutes |
 | `akasha.maintenance.runOnSessionStart` | boolean | `false` | Run one maintenance pass immediately after the session starts |
 | `akasha.privacy.redactSecrets` | boolean | `true` | Redact common secrets before appending Akasha events |
+| `akasha.gateway.enabled` | boolean | `false` | Enable the long-running IM gateway runtime |
+| `akasha.gateway.defaultCwd` | string | current cwd | Default workspace used by gateway chats |
+| `akasha.gateway.platforms.telegram.enabled` | boolean | `false` | Enable the Telegram adapter |
+| `akasha.gateway.platforms.telegram.mode` | string | `"polling"` | Telegram mode: `"polling"` or `"webhook"` |
+| `akasha.gateway.platforms.telegram.botTokenEnv` | string | `"TELEGRAM_BOT_TOKEN"` | Environment variable that stores the Telegram bot token |
+| `akasha.gateway.platforms.telegram.allowedUsersEnv` | string | `"TELEGRAM_ALLOWED_USERS"` | Comma-separated Telegram user allowlist environment variable |
+| `akasha.gateway.platforms.telegram.homeChatEnv` | string | `"TELEGRAM_HOME_CHAT"` | Chat that receives daemon callback notifications |
 
 Useful inspection commands include `/akasha timeline [n]` for the current session, `/akasha project-timeline [n]` for all sessions in the current project `cwd`, `/akasha user-timeline` for user-level memory, `/akasha action-gate` for the pre-action control brief, `/akasha queue` for due callbacks, `/akasha callback-complete <callbackId> [evidenceEventId]` and `/akasha callback-cancel <callbackId> [reason]` for callback lifecycle, `/akasha maintain [session|project|all]` for detached maintenance, `/akasha memory-review` plus `/akasha memory-pin|memory-unpin|memory-suppress <eventId>` for memory governance, `/akasha redact <eventId> <field> [reason]` for append-only redaction, `/akasha project-state project` for cross-session project state, `/akasha scheduler` for a manual Karma/scheduler pass, and `/akasha doctor` for schema, redaction, and retention diagnostics.
 
@@ -152,6 +159,19 @@ Useful inspection commands include `/akasha timeline [n]` for the current sessio
       "enabled": true,
       "heartbeatEnabled": true,
       "heartbeatIntervalMinutes": 30
+    },
+    "gateway": {
+      "enabled": true,
+      "defaultCwd": "/path/to/workspace",
+      "platforms": {
+        "telegram": {
+          "enabled": true,
+          "mode": "polling",
+          "botTokenEnv": "TELEGRAM_BOT_TOKEN",
+          "allowedUsersEnv": "TELEGRAM_ALLOWED_USERS",
+          "homeChatEnv": "TELEGRAM_HOME_CHAT"
+        }
+      }
     }
   }
 }

@@ -263,6 +263,22 @@ describe("Akasha collector extension", () => {
 			privacy: {
 				redactSecrets: true,
 			},
+			gateway: {
+				enabled: false,
+				defaultCwd: undefined,
+				platforms: {
+					telegram: {
+						enabled: false,
+						mode: "polling",
+						botTokenEnv: "TELEGRAM_BOT_TOKEN",
+						allowedUsersEnv: "TELEGRAM_ALLOWED_USERS",
+						homeChatEnv: "TELEGRAM_HOME_CHAT",
+						webhookUrlEnv: "TELEGRAM_WEBHOOK_URL",
+						webhookSecretEnv: "TELEGRAM_WEBHOOK_SECRET",
+						webhookPortEnv: "TELEGRAM_WEBHOOK_PORT",
+					},
+				},
+			},
 		});
 	});
 

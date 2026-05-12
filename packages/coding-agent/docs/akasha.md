@@ -42,6 +42,14 @@ akasha cache rebuild --scope project
 akasha cache clear --scope project
 ```
 
+Run the Telegram gateway as an always-on IM entrypoint:
+
+```bash
+akasha gateway setup
+akasha gateway status
+akasha gateway
+```
+
 Use a global preset instead of a project preset:
 
 ```bash
@@ -49,6 +57,62 @@ akasha init --global
 ```
 
 The `akasha` command remains unchanged. `akasha` is the Akasha product entrypoint over the same runtime with Akasha-oriented identity, defaults, and management commands.
+
+## Telegram Gateway
+
+The gateway lets Akasha run as a long-lived Telegram bot while keeping the Time OS event stream as the source of accountability. Telegram input, rejected users, commands, replies, delivery failures, and callback deliveries are written as `gateway.*` events. The normal Akasha session JSONL is still used for conversation continuity.
+
+Configure the non-secret preset:
+
+```bash
+akasha gateway setup
+```
+
+Add secrets and allowlist values to `~/.akasha/agent/.env`:
+
+```bash
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_ALLOWED_USERS=123456789
+TELEGRAM_HOME_CHAT=123456789
+AKASHA_GATEWAY_DEFAULT_CWD=/path/to/workspace
+```
+
+Run in the foreground for a first smoke test:
+
+```bash
+akasha gateway status
+akasha gateway
+```
+
+Inside Telegram:
+
+```text
+/start
+/status
+/new
+/stop
+/setcwd /path/to/workspace
+```
+
+For Linux always-on deployment, install a user-level systemd service:
+
+```bash
+akasha gateway install --user
+systemctl --user daemon-reload
+akasha gateway start --user
+akasha gateway status --user
+akasha gateway logs --user
+```
+
+The first implementation uses long polling by default. Webhook mode is enabled when `TELEGRAM_WEBHOOK_URL` and `TELEGRAM_WEBHOOK_SECRET` are set; Akasha validates Telegram's `X-Telegram-Bot-Api-Secret-Token` header before accepting webhook updates.
+
+Attachments are stored under:
+
+```text
+~/.akasha/agent/gateway/telegram/files/
+```
+
+Text documents are appended to the prompt, images are sent as image input, and unsupported files are passed as local file references. If an Akasha response contains `MEDIA:/absolute/path`, the gateway sends that file as Telegram media when it is readable.
 
 ## Identity Boundary
 

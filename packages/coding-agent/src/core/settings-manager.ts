@@ -67,6 +67,7 @@ export interface AkashaSettings {
 	reflection?: AkashaReflectionSettings;
 	maintenance?: AkashaMaintenanceSettings;
 	privacy?: AkashaPrivacySettings;
+	gateway?: AkashaGatewaySettings;
 }
 
 export interface ResolvedAkashaSettings {
@@ -79,6 +80,7 @@ export interface ResolvedAkashaSettings {
 	reflection: ResolvedAkashaReflectionSettings;
 	maintenance: ResolvedAkashaMaintenanceSettings;
 	privacy: ResolvedAkashaPrivacySettings;
+	gateway: ResolvedAkashaGatewaySettings;
 }
 
 export type AkashaEmbeddingProviderName = "off" | "hash" | "openai-compatible";
@@ -157,6 +159,44 @@ export interface AkashaPrivacySettings {
 
 export interface ResolvedAkashaPrivacySettings {
 	redactSecrets: boolean;
+}
+
+export interface AkashaGatewayTelegramSettings {
+	enabled?: boolean; // default: false
+	mode?: "polling" | "webhook"; // default: "polling"
+	botTokenEnv?: string; // default: TELEGRAM_BOT_TOKEN
+	allowedUsersEnv?: string; // default: TELEGRAM_ALLOWED_USERS
+	homeChatEnv?: string; // default: TELEGRAM_HOME_CHAT
+	webhookUrlEnv?: string; // default: TELEGRAM_WEBHOOK_URL
+	webhookSecretEnv?: string; // default: TELEGRAM_WEBHOOK_SECRET
+	webhookPortEnv?: string; // default: TELEGRAM_WEBHOOK_PORT
+}
+
+export interface AkashaGatewaySettings {
+	enabled?: boolean; // default: false
+	defaultCwd?: string;
+	platforms?: {
+		telegram?: AkashaGatewayTelegramSettings;
+	};
+}
+
+export interface ResolvedAkashaGatewayTelegramSettings {
+	enabled: boolean;
+	mode: "polling" | "webhook";
+	botTokenEnv: string;
+	allowedUsersEnv: string;
+	homeChatEnv: string;
+	webhookUrlEnv: string;
+	webhookSecretEnv: string;
+	webhookPortEnv: string;
+}
+
+export interface ResolvedAkashaGatewaySettings {
+	enabled: boolean;
+	defaultCwd?: string;
+	platforms: {
+		telegram: ResolvedAkashaGatewayTelegramSettings;
+	};
 }
 
 export type TransportSetting = Transport;
@@ -804,6 +844,8 @@ export class SettingsManager {
 		const actionGate = this.settings.akasha?.actionGate;
 		const reflection = this.settings.akasha?.reflection;
 		const maintenance = this.settings.akasha?.maintenance;
+		const gateway = this.settings.akasha?.gateway;
+		const telegramGateway = gateway?.platforms?.telegram;
 		return {
 			enabled: this.settings.akasha?.enabled ?? false,
 			injectTemporalBrief: this.settings.akasha?.injectTemporalBrief ?? false,
@@ -862,11 +904,59 @@ export class SettingsManager {
 			privacy: {
 				redactSecrets: this.settings.akasha?.privacy?.redactSecrets ?? true,
 			},
+			gateway: {
+				enabled: gateway?.enabled ?? false,
+				defaultCwd: gateway?.defaultCwd,
+				platforms: {
+					telegram: {
+						enabled: telegramGateway?.enabled ?? false,
+						mode: telegramGateway?.mode === "webhook" ? "webhook" : "polling",
+						botTokenEnv: telegramGateway?.botTokenEnv ?? "TELEGRAM_BOT_TOKEN",
+						allowedUsersEnv: telegramGateway?.allowedUsersEnv ?? "TELEGRAM_ALLOWED_USERS",
+						homeChatEnv: telegramGateway?.homeChatEnv ?? "TELEGRAM_HOME_CHAT",
+						webhookUrlEnv: telegramGateway?.webhookUrlEnv ?? "TELEGRAM_WEBHOOK_URL",
+						webhookSecretEnv: telegramGateway?.webhookSecretEnv ?? "TELEGRAM_WEBHOOK_SECRET",
+						webhookPortEnv: telegramGateway?.webhookPortEnv ?? "TELEGRAM_WEBHOOK_PORT",
+					},
+				},
+			},
 		};
 	}
 
 	applyAkashaDogfoodPreset(scope: SettingsScope = "project"): void {
 		const preset = createAkashaDogfoodPreset();
+		if (scope === "global") {
+			this.globalSettings.akasha = mergeAkashaSettings(this.globalSettings.akasha, preset);
+			this.markModified("akasha");
+			this.save();
+			return;
+		}
+
+		const projectSettings = structuredClone(this.projectSettings);
+		projectSettings.akasha = mergeAkashaSettings(projectSettings.akasha, preset);
+		this.markProjectModified("akasha");
+		this.saveProjectSettings(projectSettings);
+	}
+
+	applyAkashaGatewayPreset(defaultCwd: string, scope: SettingsScope = "global"): void {
+		const preset: AkashaSettings = {
+			gateway: {
+				enabled: true,
+				defaultCwd,
+				platforms: {
+					telegram: {
+						enabled: true,
+						mode: "polling",
+						botTokenEnv: "TELEGRAM_BOT_TOKEN",
+						allowedUsersEnv: "TELEGRAM_ALLOWED_USERS",
+						homeChatEnv: "TELEGRAM_HOME_CHAT",
+						webhookUrlEnv: "TELEGRAM_WEBHOOK_URL",
+						webhookSecretEnv: "TELEGRAM_WEBHOOK_SECRET",
+						webhookPortEnv: "TELEGRAM_WEBHOOK_PORT",
+					},
+				},
+			},
+		};
 		if (scope === "global") {
 			this.globalSettings.akasha = mergeAkashaSettings(this.globalSettings.akasha, preset);
 			this.markModified("akasha");

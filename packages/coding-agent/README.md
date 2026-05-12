@@ -89,6 +89,14 @@ akasha
 
 `akasha init` writes a project-local preset to `.akasha/settings.json`, enabling the append-only time stream, temporal brief, action gate, destructive command guard, and maintenance heartbeat. See [docs/akasha.md](docs/akasha.md).
 
+Akasha can also run as a Telegram gateway for always-on IM access:
+
+```bash
+akasha gateway setup
+akasha gateway status
+akasha gateway
+```
+
 **Platform notes:** [Windows](docs/windows.md) | [Termux (Android)](docs/termux.md) | [tmux](docs/tmux.md) | [Terminal setup](docs/terminal-setup.md) | [Shell aliases](docs/shell-aliases.md)
 
 ---

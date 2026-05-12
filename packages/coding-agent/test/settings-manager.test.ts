@@ -66,6 +66,22 @@ describe("SettingsManager", () => {
 				privacy: {
 					redactSecrets: true,
 				},
+				gateway: {
+					enabled: false,
+					defaultCwd: undefined,
+					platforms: {
+						telegram: {
+							enabled: false,
+							mode: "polling",
+							botTokenEnv: "TELEGRAM_BOT_TOKEN",
+							allowedUsersEnv: "TELEGRAM_ALLOWED_USERS",
+							homeChatEnv: "TELEGRAM_HOME_CHAT",
+							webhookUrlEnv: "TELEGRAM_WEBHOOK_URL",
+							webhookSecretEnv: "TELEGRAM_WEBHOOK_SECRET",
+							webhookPortEnv: "TELEGRAM_WEBHOOK_PORT",
+						},
+					},
+				},
 			});
 		});
 
@@ -105,6 +121,22 @@ describe("SettingsManager", () => {
 					},
 					privacy: {
 						redactSecrets: false,
+					},
+					gateway: {
+						enabled: true,
+						defaultCwd: "/tmp/project",
+						platforms: {
+							telegram: {
+								enabled: true,
+								mode: "webhook",
+								botTokenEnv: "BOT_TOKEN",
+								allowedUsersEnv: "ALLOWED_USERS",
+								homeChatEnv: "HOME_CHAT",
+								webhookUrlEnv: "WEBHOOK_URL",
+								webhookSecretEnv: "WEBHOOK_SECRET",
+								webhookPortEnv: "WEBHOOK_PORT",
+							},
+						},
 					},
 				},
 			});
@@ -146,6 +178,22 @@ describe("SettingsManager", () => {
 				},
 				privacy: {
 					redactSecrets: false,
+				},
+				gateway: {
+					enabled: true,
+					defaultCwd: "/tmp/project",
+					platforms: {
+						telegram: {
+							enabled: true,
+							mode: "webhook",
+							botTokenEnv: "BOT_TOKEN",
+							allowedUsersEnv: "ALLOWED_USERS",
+							homeChatEnv: "HOME_CHAT",
+							webhookUrlEnv: "WEBHOOK_URL",
+							webhookSecretEnv: "WEBHOOK_SECRET",
+							webhookPortEnv: "WEBHOOK_PORT",
+						},
+					},
 				},
 			});
 		});
