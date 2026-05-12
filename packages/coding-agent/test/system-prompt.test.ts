@@ -110,8 +110,19 @@ describe("buildSystemPrompt", () => {
 			});
 
 			expect(prompt).toContain("You are Akasha");
-			expect(prompt).toContain("time-native coding agent");
+			expect(prompt).toContain("Flow Agent");
+			expect(prompt).toContain("event-stream-based coding agent");
+			expect(prompt).toContain("causal memory");
 			expect(prompt).toContain("identify yourself as Akasha");
+			expect(prompt).toContain("Knowing:");
+			expect(prompt).toContain("Avoid memory pollution");
+			expect(prompt).toContain("Doing:");
+			expect(prompt).toContain("external validation as stronger evidence than self-review");
+			expect(prompt).toContain("Being:");
+			expect(prompt).toContain("Temporal operating rules");
+			expect(prompt).toContain("explicit Akasha time syscalls");
+			expect(prompt).toContain("Respect Akasha policy decisions and tool gates");
+			expect(prompt).toContain("future commitments visible");
 			expect(prompt).toContain("Akasha guide:");
 			expect(prompt).not.toContain("operating inside akasha");
 			expect(prompt).not.toContain("Do not introduce yourself as akasha");
