@@ -107,6 +107,9 @@ Akasha is an optional local sidecar memory layer for coding-agent session and to
 | `akasha.actionGate.includeProjectState` | boolean | `true` | Include cross-session project state in the action gate |
 | `akasha.actionGate.includeUserTimeline` | boolean | `true` | Include user-level preferences, commitments, and corrections in the action gate |
 | `akasha.actionGate.maxItems` | number | `8` | Maximum items per action-gate section |
+| `akasha.actionGate.enforceToolGate` | boolean | `false` | Enable hard pre-tool-call enforcement from Akasha |
+| `akasha.actionGate.blockDestructiveCommands` | boolean | `true` | When tool enforcement is enabled, block high-risk destructive shell commands |
+| `akasha.actionGate.blockUnverifiedArtifactWrites` | boolean | `false` | When tool enforcement is enabled, block editing additional artifacts while previous modifications remain unverified |
 | `akasha.embedding.enabled` | boolean | `false` | Enable semantic temporal recall indexing |
 | `akasha.embedding.provider` | string | `"off"` | Embedding provider: `"off"`, `"hash"`, or `"openai-compatible"` |
 | `akasha.embedding.indexDir` | string | - | Override embedding index directory; defaults to `<agentDir>/akasha/embeddings` |
@@ -121,7 +124,7 @@ Akasha is an optional local sidecar memory layer for coding-agent session and to
 | `akasha.maintenance.runOnSessionStart` | boolean | `false` | Run one maintenance pass immediately after the session starts |
 | `akasha.privacy.redactSecrets` | boolean | `true` | Redact common secrets before appending Akasha events |
 
-Useful inspection commands include `/akasha timeline [n]` for the current session, `/akasha project-timeline [n]` for all sessions in the current project `cwd`, `/akasha user-timeline` for user-level memory, `/akasha action-gate` for the pre-action control brief, `/akasha project-state project` for cross-session project state, `/akasha scheduler` for a manual Karma/scheduler pass, and `/akasha doctor` for schema, redaction, and retention diagnostics.
+Useful inspection commands include `/akasha timeline [n]` for the current session, `/akasha project-timeline [n]` for all sessions in the current project `cwd`, `/akasha user-timeline` for user-level memory, `/akasha action-gate` for the pre-action control brief, `/akasha maintain [session|project|all]` for detached maintenance, `/akasha memory-review` plus `/akasha memory-pin|memory-unpin|memory-suppress <eventId>` for memory governance, `/akasha redact <eventId> <field> [reason]` for append-only redaction, `/akasha project-state project` for cross-session project state, `/akasha scheduler` for a manual Karma/scheduler pass, and `/akasha doctor` for schema, redaction, and retention diagnostics.
 
 ```json
 {
@@ -130,7 +133,8 @@ Useful inspection commands include `/akasha timeline [n]` for the current sessio
     "injectTemporalBrief": true,
     "maxBriefEvents": 12,
     "actionGate": {
-      "enabled": true
+      "enabled": true,
+      "enforceToolGate": true
     },
     "embedding": {
       "enabled": true,

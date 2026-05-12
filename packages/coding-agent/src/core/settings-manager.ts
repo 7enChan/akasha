@@ -107,6 +107,9 @@ export interface AkashaActionGateSettings {
 	includeProjectState?: boolean; // default: true
 	includeUserTimeline?: boolean; // default: true
 	maxItems?: number; // default: 8
+	enforceToolGate?: boolean; // default: false
+	blockDestructiveCommands?: boolean; // default: true
+	blockUnverifiedArtifactWrites?: boolean; // default: false
 }
 
 export interface ResolvedAkashaActionGateSettings {
@@ -114,6 +117,9 @@ export interface ResolvedAkashaActionGateSettings {
 	includeProjectState: boolean;
 	includeUserTimeline: boolean;
 	maxItems: number;
+	enforceToolGate: boolean;
+	blockDestructiveCommands: boolean;
+	blockUnverifiedArtifactWrites: boolean;
 }
 
 export interface AkashaReflectionSettings {
@@ -825,6 +831,9 @@ export class SettingsManager {
 					typeof actionGate?.maxItems === "number" && Number.isFinite(actionGate.maxItems)
 						? Math.max(1, Math.floor(actionGate.maxItems))
 						: 8,
+				enforceToolGate: actionGate?.enforceToolGate ?? false,
+				blockDestructiveCommands: actionGate?.blockDestructiveCommands ?? true,
+				blockUnverifiedArtifactWrites: actionGate?.blockUnverifiedArtifactWrites ?? false,
 			},
 			reflection: {
 				enabled: reflection?.enabled ?? false,

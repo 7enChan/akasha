@@ -217,6 +217,9 @@ describe("Akasha collector extension", () => {
 				includeProjectState: true,
 				includeUserTimeline: true,
 				maxItems: 8,
+				enforceToolGate: false,
+				blockDestructiveCommands: true,
+				blockUnverifiedArtifactWrites: false,
 			},
 			reflection: {
 				enabled: false,
@@ -234,6 +237,41 @@ describe("Akasha collector extension", () => {
 				redactSecrets: true,
 			},
 		});
+	});
+
+	it("blocks dangerous tool calls when hard tool gate is enabled", async () => {
+		const extension = createFakeExtension();
+		await createAkashaCollectorExtension({
+			agentDir,
+			settings: SettingsManager.inMemory({
+				akasha: {
+					enabled: true,
+					actionGate: {
+						enforceToolGate: true,
+					},
+				},
+			}).getAkashaSettings(),
+		})(extension.pi);
+		const ctx = fakeContext(cwd, sessionManager);
+
+		await extension.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+		const result = (await extension.emit(
+			"tool_call",
+			{
+				type: "tool_call",
+				toolCallId: "call-danger",
+				toolName: "bash",
+				input: { command: "git reset --hard HEAD" },
+			} satisfies ToolCallEvent,
+			ctx,
+		)) as { block?: boolean; reason?: string } | undefined;
+
+		expect(result).toMatchObject({ block: true });
+		expect(result?.reason).toContain("high-risk command");
+
+		const logPath = resolveAkashaEventLogPath({}, agentDir, sessionManager.getSessionId());
+		const contents = readFileSync(logPath, "utf-8");
+		expect(contents).toContain('"kind":"tool.blocked"');
 	});
 });
 

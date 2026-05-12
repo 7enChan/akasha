@@ -329,6 +329,23 @@ agent proposes
 - User Timeline 可从 JSONL 重建，不依赖内存状态。
 - Action Gate 的每条重要事实能追溯到 supporting event ids。
 
+## M11：Runtime Enforcement 与 Memory Governance
+
+**目标：** 把 M10 的软控制上下文推进到可执行的本地运行时约束，并让用户可以治理长期记忆。
+
+**核心能力：**
+
+- Hard Tool Gate：在工具执行前拦截高风险动作，例如 destructive shell command，必要时写入 `tool.blocked` 事件。
+- Detached Maintenance Runner：不依赖当前 turn 的维护入口，可扫描 session/project/all Akasha logs 并运行 scheduler、open-loop 和 reflection 维护。
+- Memory Governance：用户可以 append-only 地 pin、unpin、suppress 或 redact 某条长期记忆事实，projection 必须尊重这些治理事件。
+
+**退出标准：**
+
+- 硬门控默认关闭，只有显式开启后才会阻断工具。
+- 被阻断工具必须留下可解释的 `tool.blocked` 时间事件。
+- Detached runner 可被 slash command 调用，也可以被后续 CLI/cron 复用。
+- User Timeline 默认应用 redaction 和 suppression，不把被撤回事实继续注入行动上下文。
+
 ## 阶段依赖图
 
 ```text
@@ -341,10 +358,11 @@ M0 Event Ontology
           -> M4 Temporal RAG
             -> M5 Time-spatial World Model
               -> M6 Karma Ledger
-                -> M7 Scheduler / Cross-session
-                  -> M8 Multi-runtime SDK
-                    -> M9 Governance / Trust
-                      -> M10 Time OS Control Plane
+	                -> M7 Scheduler / Cross-session
+	                  -> M8 Multi-runtime SDK
+	                    -> M9 Governance / Trust
+	                      -> M10 Time OS Control Plane
+	                        -> M11 Runtime Enforcement / Governance
 ```
 
 ## 每阶段通用质量门槛
@@ -359,31 +377,35 @@ M0 Event Ontology
 
 ## 当前优先级
 
-当前已进入 **M10 Control Plane** 切片。原因是：事件流、projection、Karma seed、reflection、temporal RAG、project timeline、scheduler 与治理能力已经具备局部闭环，下一步要让时间事实开始影响 Agent 行动前的决策。
+当前已进入 **M11 Runtime Enforcement / Governance** 切片。原因是：M10 已经能把时间事实注入行动前上下文，下一步要让 Akasha 具备可执行约束、离线维护入口和用户可治理的长期记忆。
 
 推荐下一轮开发标题：
 
 ```text
-Akasha M10: Time OS Control Plane
+Akasha M11: Runtime Enforcement and Memory Governance
 ```
 
 建议第一批文件边界：
 
-- `packages/coding-agent/src/core/akasha/action-gate.ts`
-- `packages/coding-agent/src/core/akasha/user-timeline.ts`
-- `packages/coding-agent/src/core/akasha/heartbeat.ts`
-- `packages/coding-agent/test/akasha-action-gate.test.ts`
-- `packages/coding-agent/test/akasha-user-timeline.test.ts`
-- `packages/coding-agent/test/akasha-heartbeat.test.ts`
+- `packages/coding-agent/src/core/akasha/tool-gate.ts`
+- `packages/coding-agent/src/core/akasha/maintenance-runner.ts`
+- `packages/coding-agent/src/core/akasha/memory-governance.ts`
+- `packages/coding-agent/test/akasha-tool-gate.test.ts`
+- `packages/coding-agent/test/akasha-maintenance-runner.test.ts`
+- `packages/coding-agent/test/akasha-memory-governance.test.ts`
 
 建议第一批命令：
 
-- `/akasha user-timeline`
-- `/akasha action-gate`
+- `/akasha maintain [session|project|all]`
+- `/akasha memory-review`
+- `/akasha memory-pin <eventId>`
+- `/akasha memory-unpin <eventId>`
+- `/akasha memory-suppress <eventId>`
+- `/akasha redact <eventId> <field> [reason]`
 
 建议第一批验收：
 
-- Action Gate 能在隐藏 context 中出现未闭环事项、用户偏好和历史纠错。
-- Heartbeat 能按配置间隔运行维护 pass，并避免重叠执行。
-- User Timeline 能跨 session 聚合用户长期目标、协作偏好和开放承诺。
-- 所有能力默认关闭，关闭 Akasha 后原有 session 行为不变。
+- 显式开启 `akasha.actionGate.enforceToolGate` 后，危险命令会在执行前被阻断。
+- `/akasha maintain all` 能扫描所有本地事件日志并运行维护。
+- `/akasha memory-suppress <eventId>` 后，User Timeline 不再使用该事实。
+- `/akasha redact <eventId> payload.text privacy` 后，召回和导出默认看到 redacted projection。

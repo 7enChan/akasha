@@ -44,6 +44,13 @@ export type {
 export { buildKarmaLedger } from "./karma-ledger.js";
 export type { AkashaMaintenanceOptions, AkashaMaintenanceResult } from "./maintenance.js";
 export { runAkashaMaintenancePass } from "./maintenance.js";
+export type {
+	AkashaDetachedMaintenanceOptions,
+	AkashaDetachedMaintenanceResult,
+	AkashaDetachedMaintenanceSessionResult,
+	AkashaMaintenanceScope,
+} from "./maintenance-runner.js";
+export { runAkashaDetachedMaintenance } from "./maintenance-runner.js";
 export {
 	mapMessageEnd,
 	mapSessionEntry,
@@ -52,6 +59,8 @@ export {
 	mapToolRequested,
 	truncateText,
 } from "./mapper.js";
+export type { AkashaMemoryGovernanceAction, AkashaMemoryGovernanceState } from "./memory-governance.js";
+export { buildMemoryGovernance, createMemoryGovernanceEvent, isMemoryGovernanceEvent } from "./memory-governance.js";
 export type { AkashaOpenLoopRecord } from "./open-loops.js";
 export { buildOpenLoopLedger, deriveOpenLoopEvents } from "./open-loops.js";
 export { compareAkashaEvents, orderAkashaEvents } from "./ordering.js";
@@ -111,6 +120,8 @@ export type {
 	AkashaTemporalState,
 } from "./temporal-state.js";
 export { buildTemporalState } from "./temporal-state.js";
+export type { AkashaToolGateDecision, AkashaToolGateOptions } from "./tool-gate.js";
+export { evaluateAkashaToolGate, findDangerousCommandPattern } from "./tool-gate.js";
 export type {
 	AkashaActor,
 	AkashaEvent,

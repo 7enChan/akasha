@@ -47,6 +47,9 @@ describe("SettingsManager", () => {
 					includeProjectState: true,
 					includeUserTimeline: true,
 					maxItems: 8,
+					enforceToolGate: false,
+					blockDestructiveCommands: true,
+					blockUnverifiedArtifactWrites: false,
 				},
 				reflection: {
 					enabled: false,
@@ -84,6 +87,9 @@ describe("SettingsManager", () => {
 						includeProjectState: false,
 						includeUserTimeline: false,
 						maxItems: 3.8,
+						enforceToolGate: true,
+						blockDestructiveCommands: false,
+						blockUnverifiedArtifactWrites: true,
 					},
 					reflection: {
 						enabled: true,
@@ -122,6 +128,9 @@ describe("SettingsManager", () => {
 					includeProjectState: false,
 					includeUserTimeline: false,
 					maxItems: 3,
+					enforceToolGate: true,
+					blockDestructiveCommands: false,
+					blockUnverifiedArtifactWrites: true,
 				},
 				reflection: {
 					enabled: true,

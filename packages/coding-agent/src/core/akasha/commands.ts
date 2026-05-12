@@ -1,18 +1,25 @@
 import type { ExtensionAPI } from "../extensions/types.js";
+import type { ResolvedAkashaReflectionSettings } from "../settings-manager.js";
 import { buildAkashaActionGateContext } from "./action-gate.js";
 import type { AkashaDoctorReport } from "./doctor.js";
 import { buildAkashaDoctorReport } from "./doctor.js";
+import { JsonlAkashaStore } from "./jsonl-store.js";
 import type { AkashaKarmaLedger } from "./karma-ledger.js";
 import { buildKarmaLedger } from "./karma-ledger.js";
+import { runAkashaDetachedMaintenance } from "./maintenance-runner.js";
+import { createMemoryGovernanceEvent } from "./memory-governance.js";
 import type { AkashaOpenLoopRecord } from "./open-loops.js";
 import { buildOpenLoopLedger } from "./open-loops.js";
 import { buildAkashaProjectTimeline, summarizeProjectTimeline } from "./project-timeline.js";
+import { createRedactionEvent } from "./redaction.js";
 import type { AkashaRetentionPlan } from "./retention.js";
 import { planAkashaRetention } from "./retention.js";
 import { runAkashaSchedulerPass } from "./scheduler.js";
+import { buildAkashaSessionIndex } from "./session-index.js";
 import type { AkashaOpenLoopCandidate, AkashaTemporalState } from "./temporal-state.js";
 import { buildTemporalState } from "./temporal-state.js";
 import type { AkashaEvent, AkashaStore } from "./types.js";
+import type { AkashaUserTimeline } from "./user-timeline.js";
 import { buildAkashaUserTimeline, summarizeUserTimeline } from "./user-timeline.js";
 import type { AkashaProjectState } from "./world-model.js";
 import { buildProjectState } from "./world-model.js";
@@ -20,6 +27,7 @@ import { buildProjectState } from "./world-model.js";
 export interface AkashaCommandOptions {
 	agentDir: string;
 	eventLogDir?: string;
+	reflection: ResolvedAkashaReflectionSettings;
 }
 
 export function registerAkashaCommands(
@@ -29,7 +37,7 @@ export function registerAkashaCommands(
 ): void {
 	pi.registerCommand("akasha", {
 		description:
-			"Inspect Akasha time events: /akasha status | timeline [n] | project-timeline [n] | user-timeline | action-gate | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | karma | scheduler | governance | doctor",
+			"Inspect Akasha time events: /akasha status | timeline [n] | project-timeline [n] | user-timeline | action-gate | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | karma | scheduler | governance | doctor",
 		getArgumentCompletions: (prefix) => {
 			const commands = [
 				"status",
@@ -37,6 +45,12 @@ export function registerAkashaCommands(
 				"project-timeline",
 				"user-timeline",
 				"action-gate",
+				"maintain",
+				"memory-review",
+				"memory-pin",
+				"memory-unpin",
+				"memory-suppress",
+				"redact",
 				"why",
 				"explain-current",
 				"open-loops",
@@ -139,6 +153,94 @@ export function registerAkashaCommands(
 				return;
 			}
 
+			if (subcommand === "maintain") {
+				if (!options) {
+					ctx.ui.notify("Akasha detached maintenance is unavailable without command options.", "warning");
+					return;
+				}
+				const requestedScope = rest[0] === "project" || rest[0] === "all" ? rest[0] : "session";
+				const currentSessionId = store.buildTimeline({ limit: 1 }).at(-1)?.sessionId;
+				const result = await runAkashaDetachedMaintenance({
+					agentDir: options.agentDir,
+					eventLogDir: options.eventLogDir,
+					cwd: requestedScope === "project" ? ctx.cwd : undefined,
+					sessionId: requestedScope === "session" ? currentSessionId : undefined,
+					scope: requestedScope,
+					reflection: options.reflection,
+				});
+				ctx.ui.notify(formatDetachedMaintenanceResult(result), result.errors.length > 0 ? "warning" : "info");
+				return;
+			}
+
+			if (subcommand === "memory-review") {
+				if (!options) {
+					ctx.ui.notify("Akasha memory review is unavailable without command options.", "warning");
+					return;
+				}
+				ctx.ui.notify(
+					formatMemoryReview(
+						buildAkashaUserTimeline({
+							agentDir: options.agentDir,
+							eventLogDir: options.eventLogDir,
+							limit: 1000,
+						}),
+					),
+					"info",
+				);
+				return;
+			}
+
+			if (subcommand === "memory-pin" || subcommand === "memory-unpin" || subcommand === "memory-suppress") {
+				if (!options) {
+					ctx.ui.notify("Akasha memory governance is unavailable without command options.", "warning");
+					return;
+				}
+				const id = rest[0];
+				if (!id) {
+					ctx.ui.notify(`Usage: /akasha ${subcommand} <eventId> [reason]`, "warning");
+					return;
+				}
+				const target = findEventForMutation(store, id, options);
+				if (!target) {
+					ctx.ui.notify(`No Akasha event found for ${id}.`, "warning");
+					return;
+				}
+				const action = subcommand === "memory-pin" ? "pin" : subcommand === "memory-unpin" ? "unpin" : "suppress";
+				const reason = rest.slice(1).join(" ") || "user_requested";
+				const event = target.store.append(createMemoryGovernanceEvent(target.event, action, reason));
+				ctx.ui.notify(`${subcommand} recorded for ${target.event.eventId}: ${event.eventId}`, "info");
+				return;
+			}
+
+			if (subcommand === "redact") {
+				if (!options) {
+					ctx.ui.notify("Akasha redaction is unavailable without command options.", "warning");
+					return;
+				}
+				const id = rest[0];
+				const field = rest[1];
+				if (!id || !field) {
+					ctx.ui.notify(
+						"Usage: /akasha redact <eventId> <payload|payload.field|objectId|subjectId> [reason]",
+						"warning",
+					);
+					return;
+				}
+				const target = findEventForMutation(store, id, options);
+				if (!target) {
+					ctx.ui.notify(`No Akasha event found for ${id}.`, "warning");
+					return;
+				}
+				const fields = field
+					.split(",")
+					.map((item) => item.trim())
+					.filter(Boolean);
+				const reason = rest.slice(2).join(" ") || "user_requested";
+				const event = target.store.append(createRedactionEvent(target.event, fields, reason));
+				ctx.ui.notify(`Redaction recorded for ${target.event.eventId}: ${event.eventId}`, "info");
+				return;
+			}
+
 			if (subcommand === "why") {
 				const id = rest[0];
 				if (!id) {
@@ -225,7 +327,7 @@ export function registerAkashaCommands(
 			}
 
 			ctx.ui.notify(
-				"Usage: /akasha status | timeline [n] | project-timeline [n] | user-timeline | action-gate | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | karma | scheduler | governance | doctor",
+				"Usage: /akasha status | timeline [n] | project-timeline [n] | user-timeline | action-gate | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | karma | scheduler | governance | doctor",
 				"warning",
 			);
 		},
@@ -386,4 +488,64 @@ function formatDoctorReport(report: AkashaDoctorReport): string {
 		`- retention payload redaction due: ${report.retentionRedactPayloadCount}`,
 		`- last event: ${report.lastEventId ?? "(none)"}`,
 	].join("\n");
+}
+
+function formatDetachedMaintenanceResult(result: Awaited<ReturnType<typeof runAkashaDetachedMaintenance>>): string {
+	const lines = [
+		"Akasha maintenance:",
+		`- scope: ${result.scope}`,
+		`- scanned sessions: ${result.scannedCount}`,
+		`- maintained sessions: ${result.maintainedCount}`,
+		`- appended events: ${result.appendedCount}`,
+	];
+	for (const session of result.sessions.slice(0, 8)) {
+		const error = session.error ? ` error=${session.error}` : "";
+		lines.push(
+			`- ${session.sessionId}: appended=${session.appendedCount} loops=${session.openLoopCount} scheduler=${session.schedulerCount} reflection=${session.reflectionCreated}${error}`,
+		);
+	}
+	if (result.errors.length > 0) {
+		lines.push("Errors:", ...result.errors.map((error) => `- ${error}`));
+	}
+	return lines.join("\n");
+}
+
+function formatMemoryReview(timeline: AkashaUserTimeline): string {
+	const lines = [
+		`Akasha memory review: ${timeline.events.length} events, ${timeline.pinnedEventIds.length} pinned, ${timeline.suppressedEventIds.length} suppressed`,
+	];
+	appendReviewFacts(lines, "Preferences", timeline.preferences);
+	appendReviewFacts(lines, "Long-term goals", timeline.longTermGoals);
+	appendReviewFacts(lines, "Collaboration hints", timeline.collaborationHints);
+	appendReviewFacts(lines, "Open commitments", timeline.openCommitments);
+	appendReviewFacts(lines, "Due predictions", timeline.duePredictions);
+	appendReviewFacts(lines, "Corrections", timeline.corrections);
+	return lines.join("\n");
+}
+
+function appendReviewFacts(lines: string[], label: string, facts: AkashaUserTimeline["preferences"]): void {
+	lines.push("", `${label}:`);
+	if (facts.length === 0) {
+		lines.push("- (none)");
+		return;
+	}
+	for (const fact of facts.slice(0, 10)) {
+		lines.push(`- ${fact.eventId}${fact.pinned ? " [pinned]" : ""}: ${fact.text}`);
+	}
+}
+
+function findEventForMutation(
+	currentStore: AkashaStore,
+	eventId: string,
+	options: AkashaCommandOptions,
+): { store: AkashaStore; event: AkashaEvent } | undefined {
+	const current = currentStore.findById(eventId);
+	if (current) return { store: currentStore, event: current };
+	for (const entry of buildAkashaSessionIndex({ agentDir: options.agentDir, eventLogDir: options.eventLogDir })) {
+		if (entry.eventLogPath === currentStore.eventLogPath) continue;
+		const store = new JsonlAkashaStore(entry.eventLogPath);
+		const event = store.findById(eventId);
+		if (event) return { store, event };
+	}
+	return undefined;
 }

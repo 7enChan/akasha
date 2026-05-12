@@ -108,6 +108,7 @@ export class JsonlAkashaStore implements AkashaStore {
 			) ??
 			matches.find((event) => event.kind === "message.tool_result.recorded") ??
 			matches.find((event) => event.kind === "tool.completed") ??
+			matches.find((event) => event.kind === "tool.blocked") ??
 			matches.find((event) => event.kind === "tool.requested")
 		);
 	}

@@ -37,6 +37,7 @@ import {
 } from "./mapper.js";
 import { deriveOpenLoopEvents } from "./open-loops.js";
 import { buildAkashaProjectTimeline } from "./project-timeline.js";
+import { evaluateAkashaToolGate } from "./tool-gate.js";
 import type { AkashaEvent, AkashaEventDraft, AkashaEventKind, AkashaStore } from "./types.js";
 import { buildAkashaUserTimeline } from "./user-timeline.js";
 
@@ -256,6 +257,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 		registerAkashaCommands(pi, getStore, {
 			agentDir: options.agentDir,
 			eventLogDir: options.settings.eventLogDir,
+			reflection: reflectionSettings,
 		});
 
 		pi.on("session_start", (event, ctx) => {
@@ -394,6 +396,38 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 				latestAssistantEventId,
 				currentTurnEventId,
 			);
+			const gateDecision = evaluateAkashaToolGate(event, {
+				settings: options.settings.actionGate,
+				timelineEvents: store?.buildTimeline({ limit: 500 }) ?? [],
+			});
+			if (!gateDecision.allow) {
+				append(
+					baseDraft(
+						"tool.blocked",
+						{
+							toolName: event.toolName,
+							reason: gateDecision.reason,
+							rule: gateDecision.rule,
+							blockedEventIds: gateDecision.eventIds,
+						},
+						{
+							actor: "system",
+							subjectId: "akasha.action_gate",
+							objectId: event.toolName,
+							toolCallId: event.toolCallId,
+							sourceKey: `tool-call:${sessionId}:${event.toolCallId}:blocked`,
+							parentEventIds,
+							correlationId: currentTurnEventId,
+							importance: 0.95,
+							ttlPolicy: "long_term",
+						},
+					),
+				);
+				return {
+					block: true,
+					reason: gateDecision.reason ?? "Akasha blocked this tool call.",
+				};
+			}
 			const requested = append(
 				mapToolRequested(event, {
 					sessionId: sessionId ?? ctx.sessionManager.getSessionId(),

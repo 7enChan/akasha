@@ -1,6 +1,8 @@
 import { JsonlAkashaStore } from "./jsonl-store.js";
 import { buildKarmaLedger } from "./karma-ledger.js";
+import { buildMemoryGovernance } from "./memory-governance.js";
 import { orderAkashaEvents } from "./ordering.js";
+import { applyAkashaRedactions } from "./redaction.js";
 import { buildAkashaSessionIndex } from "./session-index.js";
 import type { AkashaEvent } from "./types.js";
 
@@ -15,6 +17,7 @@ export interface AkashaUserFact {
 	text: string;
 	eventTime: string;
 	confidence: number;
+	pinned?: boolean;
 }
 
 export interface AkashaUserTimeline {
@@ -25,6 +28,8 @@ export interface AkashaUserTimeline {
 	openCommitments: AkashaUserFact[];
 	duePredictions: AkashaUserFact[];
 	corrections: AkashaUserFact[];
+	pinnedEventIds: string[];
+	suppressedEventIds: string[];
 	lastEventId?: string;
 	lastEventTime?: string;
 }
@@ -41,7 +46,9 @@ export function buildAkashaUserTimeline(options: AkashaUserTimelineOptions): Aka
 }
 
 export function buildAkashaUserTimelineFromEvents(events: AkashaEvent[]): AkashaUserTimeline {
-	const ordered = orderAkashaEvents(events);
+	const redacted = applyAkashaRedactions(orderAkashaEvents(events));
+	const governance = buildMemoryGovernance(redacted);
+	const ordered = redacted.filter((event) => !governance.suppressedEventIds.has(event.eventId));
 	const preferences: AkashaUserFact[] = [];
 	const longTermGoals: AkashaUserFact[] = [];
 	const collaborationHints: AkashaUserFact[] = [];
@@ -51,21 +58,24 @@ export function buildAkashaUserTimelineFromEvents(events: AkashaEvent[]): Akasha
 		if (event.kind === "preference.inferred" || event.kind === "memory.crystal.created") {
 			const text = crystalText(event);
 			if (text && looksLikePreference(text)) {
-				preferences.push(fact(event, text, numericPayload(event, "confidence") ?? 0.7));
+				preferences.push(fact(event, text, numericPayload(event, "confidence") ?? 0.7, governance.pinnedEventIds));
 			}
 		}
 
 		if (event.kind === "message.user.submitted") {
 			const text = eventText(event);
-			if (looksLikePreference(text)) preferences.push(fact(event, text, 0.6));
-			if (looksLikeLongTermGoal(text)) longTermGoals.push(fact(event, text, 0.6));
-			if (looksLikeCollaborationHint(text)) collaborationHints.push(fact(event, text, 0.75));
+			if (looksLikePreference(text)) preferences.push(fact(event, text, 0.6, governance.pinnedEventIds));
+			if (looksLikeLongTermGoal(text)) longTermGoals.push(fact(event, text, 0.6, governance.pinnedEventIds));
+			if (looksLikeCollaborationHint(text))
+				collaborationHints.push(fact(event, text, 0.75, governance.pinnedEventIds));
 		}
 
 		if (event.kind === "prediction.corrected") {
 			const claim = stringPayload(event, "claim") ?? eventText(event);
 			const correction = stringPayload(event, "correction") ?? stringPayload(event, "actual") ?? "";
-			corrections.push(fact(event, correction ? `${claim} -> ${correction}` : claim, 0.8));
+			corrections.push(
+				fact(event, correction ? `${claim} -> ${correction}` : claim, 0.8, governance.pinnedEventIds),
+			);
 		}
 	}
 
@@ -83,6 +93,7 @@ export function buildAkashaUserTimelineFromEvents(events: AkashaEvent[]): Akasha
 				text: promise.summary,
 				eventTime: promise.lastEventTime,
 				confidence: promise.state === "overdue" ? 0.9 : 0.75,
+				pinned: governance.pinnedEventIds.has(promise.lastEventId),
 			})),
 		duePredictions: karma.predictions
 			.filter((prediction) => prediction.state === "due")
@@ -91,8 +102,11 @@ export function buildAkashaUserTimelineFromEvents(events: AkashaEvent[]): Akasha
 				text: prediction.claim,
 				eventTime: prediction.lastEventTime,
 				confidence: prediction.confidence ?? 0.7,
+				pinned: governance.pinnedEventIds.has(prediction.lastEventId),
 			})),
 		corrections: newestUnique(corrections),
+		pinnedEventIds: [...governance.pinnedEventIds],
+		suppressedEventIds: [...governance.suppressedEventIds],
 		lastEventId: lastEvent?.eventId,
 		lastEventTime: lastEvent?.eventTime,
 	};
@@ -117,16 +131,17 @@ function appendFacts(lines: string[], label: string, facts: AkashaUserFact[], ma
 		return;
 	}
 	for (const fact of facts.slice(0, maxItems)) {
-		lines.push(`- ${fact.text}`);
+		lines.push(`- ${fact.pinned ? "[pinned] " : ""}${fact.text}`);
 	}
 }
 
-function fact(event: AkashaEvent, text: string, confidence: number): AkashaUserFact {
+function fact(event: AkashaEvent, text: string, confidence: number, pinnedEventIds: Set<string>): AkashaUserFact {
 	return {
 		eventId: event.eventId,
 		text: truncate(text),
 		eventTime: event.eventTime,
 		confidence,
+		pinned: pinnedEventIds.has(event.eventId),
 	};
 }
 
