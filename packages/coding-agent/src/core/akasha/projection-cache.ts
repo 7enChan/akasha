@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { CURRENT_AKASHA_EVENT_VERSION } from "./schema.js";
 import { type AkashaTaskModel, buildAkashaTaskModel } from "./task-model.js";
@@ -17,6 +17,7 @@ export interface AkashaProjectionSourceFingerprint {
 	exists: boolean;
 	size: number;
 	mtimeMs: number;
+	sha256?: string;
 }
 
 export interface AkashaProjectionHighWaterMark {
@@ -57,6 +58,7 @@ export interface AkashaProjectionCacheOptions {
 	scope: AkashaProjectionCacheScope;
 	cacheKey: string;
 	sourceLogPaths: string[];
+	fingerprintMode?: "fast" | "strong";
 }
 
 export interface AkashaTemporalStateSnapshot {
@@ -138,7 +140,7 @@ export function writeAkashaProjectionCache<T>(
 			projectionVersion: AKASHA_PROJECTION_CACHE_VERSION,
 			eventSchemaVersion: CURRENT_AKASHA_EVENT_VERSION,
 			sourceLogPaths: normalizeSourcePaths(options.sourceLogPaths),
-			sourceFingerprints: fingerprintSourcePaths(options.sourceLogPaths),
+			sourceFingerprints: fingerprintSourcePaths(options.sourceLogPaths, options.fingerprintMode),
 			highWaterMark: highWaterMark(events),
 			createdTime: previous?.metadata.createdTime ?? now,
 			updatedTime: now,
@@ -156,6 +158,13 @@ export function writeAkashaProjectionCache<T>(
 		},
 		rebuilt: true,
 	};
+}
+
+export function clearAkashaProjectionCache(options: AkashaProjectionCacheOptions): boolean {
+	const cachePath = resolveAkashaProjectionCachePath(options);
+	if (!existsSync(cachePath)) return false;
+	rmSync(cachePath, { force: true });
+	return true;
 }
 
 export function loadOrBuildAkashaProjection<T>(
@@ -228,14 +237,17 @@ function validateCacheRecord(
 		reasons.push("source log paths changed");
 	}
 
-	const currentFingerprints = fingerprintSourcePaths(options.sourceLogPaths);
+	const currentFingerprints = fingerprintSourcePaths(options.sourceLogPaths, options.fingerprintMode);
 	if (JSON.stringify(record.metadata.sourceFingerprints) !== JSON.stringify(currentFingerprints)) {
 		reasons.push("source log fingerprint changed");
 	}
 	return reasons;
 }
 
-function fingerprintSourcePaths(paths: string[]): AkashaProjectionSourceFingerprint[] {
+function fingerprintSourcePaths(
+	paths: string[],
+	mode: AkashaProjectionCacheOptions["fingerprintMode"] = "fast",
+): AkashaProjectionSourceFingerprint[] {
 	return normalizeSourcePaths(paths).map((path) => {
 		try {
 			const stat = statSync(path);
@@ -244,6 +256,7 @@ function fingerprintSourcePaths(paths: string[]): AkashaProjectionSourceFingerpr
 				exists: true,
 				size: stat.size,
 				mtimeMs: Math.trunc(stat.mtimeMs),
+				sha256: mode === "strong" ? createHash("sha256").update(readFileSync(path)).digest("hex") : undefined,
 			};
 		} catch {
 			return {

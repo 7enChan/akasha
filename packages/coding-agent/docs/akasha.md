@@ -26,6 +26,22 @@ Check the resolved state:
 akasha status
 ```
 
+Run daemon maintenance outside an interactive session:
+
+```bash
+akasha daemon status --scope project
+akasha daemon tick --scope project
+akasha daemon run --scope project --dispatch agent_prompt_file
+```
+
+Inspect or rebuild projection caches outside a session:
+
+```bash
+akasha cache status --scope project
+akasha cache rebuild --scope project
+akasha cache clear --scope project
+```
+
 Use a global preset instead of a project preset:
 
 ```bash
@@ -60,6 +76,9 @@ Inside an Akasha-enabled session, use:
 /akasha daemon status
 /akasha daemon tick
 /akasha daemon run
+/akasha cache status
+/akasha cache rebuild
+/akasha cache clear
 /akasha task-model
 /akasha doctor
 /akasha why <eventId|toolCallId>
@@ -70,6 +89,14 @@ Inside an Akasha-enabled session, use:
 `/akasha task-model` includes both the legacy typed lists and the graph projection. The graph connects goals, tasks, decisions, risks, artifacts, and callbacks with edges such as `belongs_to`, `blocks`, `tracks`, and `validates`. Edges include source and confidence metadata, so explicit/causal links can be distinguished from temporal or heuristic fallbacks.
 
 `/akasha daemon tick` materializes due callbacks. `/akasha daemon run` claims runnable callbacks, evaluates callback dispatch policy, and records dispatch or failure events. Completion and cancellation remain explicit through `/akasha callback-complete` and `/akasha callback-cancel`.
+
+The shell-level `akasha daemon run` can dispatch callbacks with `agent_prompt_file`, which appends pending callback prompts to:
+
+```text
+<agentDir>/akasha/inbox/pending-callbacks.jsonl
+```
+
+This gives Akasha a local handoff point for future agent resume flows without requiring a live chat session.
 
 `/akasha doctor` reports event counts, schema issues, retention pressure, and projection cache freshness.
 
@@ -96,6 +123,8 @@ When the assistant expresses future responsibility without a syscall, Akasha rec
 
 Reflection and embeddings remain opt-in. When enabled, reflection runs over governed events, so suppressed/redacted sources do not become long-term crystals. Crystal payloads include `sourceEventIds` for auditability and governance propagation.
 
+Embedding stores support tombstone, purge, and compact operations. Maintenance tombstones embedding targets that fall out of governed projections, so suppressed/redacted event sources do not continue to appear in semantic search results.
+
 ## Storage
 
 By default, Akasha writes event logs under:
@@ -116,7 +145,7 @@ Projection caches are written under:
 <agentDir>/akasha/projections/
 ```
 
-Projection caches are indexes, not facts. They include source log fingerprints and high-water marks, are invalidated when source logs change, and can be deleted safely because Akasha rebuilds them from JSONL.
+Projection caches are indexes, not facts. They include source log fingerprints and high-water marks, are invalidated when source logs change, and can be deleted safely because Akasha rebuilds them from JSONL. Project timeline caches track only matching project session logs, and the cache layer supports fast fingerprints plus optional strong SHA-256 fingerprints.
 
 Override with:
 

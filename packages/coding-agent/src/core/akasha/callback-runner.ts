@@ -1,4 +1,5 @@
 import type { ResolvedAkashaReflectionSettings } from "../settings-manager.js";
+import { appendAkashaPendingCallbackPrompt } from "./callback-inbox.js";
 import type { AkashaDaemonQueuePassResult } from "./daemon-queue.js";
 import { runAkashaDaemonQueuePass } from "./daemon-queue.js";
 import {
@@ -9,12 +10,37 @@ import {
 } from "./policy-kernel.js";
 import type { AkashaEvent, AkashaStore } from "./types.js";
 
+export type AkashaCallbackDispatchMode = "record_only" | "terminal_notification" | "agent_prompt_file" | "agent";
+
+export interface AkashaCallbackDispatchContext {
+	store: AkashaStore;
+	callback: AkashaRunnableCallback;
+	claim: AkashaEvent;
+	now: Date;
+	agentDir?: string;
+}
+
+export interface AkashaCallbackDispatchResult {
+	status: "dispatched" | "failed";
+	mode: AkashaCallbackDispatchMode;
+	message: string;
+	outputEventIds?: string[];
+	details?: Record<string, unknown>;
+}
+
+export interface AkashaCallbackDispatcher {
+	name: AkashaCallbackDispatchMode;
+	dispatch(context: AkashaCallbackDispatchContext): AkashaCallbackDispatchResult;
+}
+
 export interface AkashaCallbackRunnerOptions {
 	reflection: ResolvedAkashaReflectionSettings;
 	now?: Date;
 	limit?: number;
 	maxCallbacks?: number;
-	dispatchMode?: "record_only" | "agent";
+	dispatchMode?: AkashaCallbackDispatchMode;
+	dispatcher?: AkashaCallbackDispatcher;
+	agentDir?: string;
 	rules?: AkashaPolicyRule[];
 }
 
@@ -62,7 +88,30 @@ export function runAkashaCallbackRunner(
 			failed.push(failAkashaCallbackDispatch(store, callback, claim, policy.event, policy.decision.reason, now));
 			continue;
 		}
-		dispatched.push(dispatchAkashaCallback(store, callback, claim, options.dispatchMode ?? "record_only", now));
+		const dispatchResult = (
+			options.dispatcher ?? createAkashaCallbackDispatcher(options.dispatchMode ?? "record_only")
+		).dispatch({
+			store,
+			callback,
+			claim,
+			now,
+			agentDir: options.agentDir,
+		});
+		if (dispatchResult.status === "failed") {
+			failed.push(
+				failAkashaCallbackDispatch(
+					store,
+					callback,
+					claim,
+					policy.event,
+					dispatchResult.message,
+					now,
+					dispatchResult,
+				),
+			);
+			continue;
+		}
+		dispatched.push(dispatchAkashaCallback(store, callback, claim, dispatchResult, now));
 	}
 
 	return {
@@ -72,6 +121,52 @@ export function runAkashaCallbackRunner(
 		dispatched,
 		failed,
 		policies,
+	};
+}
+
+export function createAkashaCallbackDispatcher(mode: AkashaCallbackDispatchMode): AkashaCallbackDispatcher {
+	const normalizedMode = mode === "agent" ? "agent_prompt_file" : mode;
+	if (normalizedMode === "terminal_notification") {
+		return {
+			name: "terminal_notification",
+			dispatch: ({ callback }) => ({
+				status: "dispatched",
+				mode: "terminal_notification",
+				message: `Akasha callback due: ${callback.summary}`,
+			}),
+		};
+	}
+	if (normalizedMode === "agent_prompt_file") {
+		return {
+			name: "agent_prompt_file",
+			dispatch: ({ callback, claim, now, agentDir }) => {
+				if (!agentDir) {
+					return {
+						status: "failed",
+						mode: "agent_prompt_file",
+						message: "agent_prompt_file dispatch requires agentDir",
+					};
+				}
+				const prompt = appendAkashaPendingCallbackPrompt(agentDir, callback, claim, now);
+				return {
+					status: "dispatched",
+					mode: "agent_prompt_file",
+					message: `Queued callback prompt: ${prompt.id}`,
+					details: {
+						inboxItemId: prompt.id,
+						prompt: prompt.prompt,
+					},
+				};
+			},
+		};
+	}
+	return {
+		name: "record_only",
+		dispatch: ({ callback }) => ({
+			status: "dispatched",
+			mode: "record_only",
+			message: `Recorded callback dispatch: ${callback.callbackId}`,
+		}),
 	};
 }
 
@@ -135,7 +230,7 @@ function dispatchAkashaCallback(
 	store: AkashaStore,
 	callback: AkashaRunnableCallback,
 	claim: AkashaEvent,
-	dispatchMode: "record_only" | "agent",
+	dispatchResult: AkashaCallbackDispatchResult,
 	now: Date,
 ): AkashaEvent {
 	return store.append({
@@ -152,7 +247,10 @@ function dispatchAkashaCallback(
 			callbackId: callback.callbackId,
 			claimEventId: claim.eventId,
 			dueEventId: callback.dueEvent.eventId,
-			dispatchMode,
+			dispatchMode: dispatchResult.mode,
+			dispatcherMessage: dispatchResult.message,
+			outputEventIds: dispatchResult.outputEventIds,
+			dispatchDetails: dispatchResult.details,
 			kind: callback.kind,
 			summary: callback.summary,
 			targetEventId: callback.targetEventId,
@@ -169,6 +267,7 @@ function failAkashaCallbackDispatch(
 	policyEvent: AkashaEvent,
 	reason: string,
 	now: Date,
+	dispatchResult?: AkashaCallbackDispatchResult,
 ): AkashaEvent {
 	return store.append({
 		kind: "time.callback.failed",
@@ -185,6 +284,9 @@ function failAkashaCallbackDispatch(
 			claimEventId: claim.eventId,
 			dueEventId: callback.dueEvent.eventId,
 			reason,
+			dispatchMode: dispatchResult?.mode,
+			dispatcherMessage: dispatchResult?.message,
+			dispatchDetails: dispatchResult?.details,
 			kind: callback.kind,
 			summary: callback.summary,
 			targetEventId: callback.targetEventId,

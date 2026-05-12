@@ -20,7 +20,12 @@ import { createMemoryGovernanceEvent } from "./memory-governance.js";
 import type { AkashaOpenLoopRecord } from "./open-loops.js";
 import { buildOpenLoopLedger } from "./open-loops.js";
 import { buildAkashaProjectTimeline, summarizeProjectTimeline } from "./project-timeline.js";
-import { buildCachedAkashaTemporalStateSnapshot } from "./projection-cache.js";
+import {
+	buildCachedAkashaTemporalStateSnapshot,
+	clearAkashaProjectionCache,
+	getAkashaProjectionCacheFreshness,
+	sessionStateProjectionCacheKey,
+} from "./projection-cache.js";
 import { createRedactionEvent } from "./redaction.js";
 import type { AkashaRetentionPlan } from "./retention.js";
 import { planAkashaRetention } from "./retention.js";
@@ -49,7 +54,7 @@ export function registerAkashaCommands(
 ): void {
 	pi.registerCommand("akasha", {
 		description:
-			"Inspect Akasha time events: /akasha status | init [global] | enable [global] | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | daemon [status|tick|run] | callback-complete <callbackId> [evidenceEventId] | callback-cancel <callbackId> [reason] | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
+			"Inspect Akasha time events: /akasha status | init [global] | enable [global] | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | daemon [status|tick|run] | cache [status|clear|rebuild] | callback-complete <callbackId> [evidenceEventId] | callback-cancel <callbackId> [reason] | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
 		getArgumentCompletions: (prefix) => {
 			const commands = [
 				"status",
@@ -61,6 +66,7 @@ export function registerAkashaCommands(
 				"action-gate",
 				"queue",
 				"daemon",
+				"cache",
 				"callback-complete",
 				"callback-cancel",
 				"maintain",
@@ -244,6 +250,45 @@ export function registerAkashaCommands(
 					return;
 				}
 				ctx.ui.notify("Usage: /akasha daemon status | tick | run", "warning");
+				return;
+			}
+
+			if (subcommand === "cache") {
+				if (!options) {
+					ctx.ui.notify("Akasha cache is unavailable without command options.", "warning");
+					return;
+				}
+				const action = rest[0] ?? "status";
+				const cacheOptions = {
+					agentDir: options.agentDir,
+					eventLogDir: options.eventLogDir,
+					scope: "session" as const,
+					cacheKey: sessionStateProjectionCacheKey(store, 1000),
+					sourceLogPaths: [store.eventLogPath],
+				};
+				if (action === "status") {
+					ctx.ui.notify(formatCacheFreshness(getAkashaProjectionCacheFreshness(cacheOptions)), "info");
+					return;
+				}
+				if (action === "clear") {
+					const cleared = clearAkashaProjectionCache(cacheOptions);
+					ctx.ui.notify(
+						cleared ? "Akasha projection cache cleared." : "No Akasha projection cache to clear.",
+						"info",
+					);
+					return;
+				}
+				if (action === "rebuild") {
+					clearAkashaProjectionCache(cacheOptions);
+					const rebuilt = buildCachedAkashaTemporalStateSnapshot(store, {
+						agentDir: options.agentDir,
+						eventLogDir: options.eventLogDir,
+						limit: 1000,
+					});
+					ctx.ui.notify(formatCacheFreshness(rebuilt.freshness), "info");
+					return;
+				}
+				ctx.ui.notify("Usage: /akasha cache status | clear | rebuild", "warning");
 				return;
 			}
 
@@ -482,7 +527,7 @@ export function registerAkashaCommands(
 			}
 
 			ctx.ui.notify(
-				"Usage: /akasha status | init [global] | enable [global] | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | daemon [status|tick|run] | callback-complete <callbackId> [evidenceEventId] | callback-cancel <callbackId> [reason] | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
+				"Usage: /akasha status | init [global] | enable [global] | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | daemon [status|tick|run] | cache [status|clear|rebuild] | callback-complete <callbackId> [evidenceEventId] | callback-cancel <callbackId> [reason] | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
 				"warning",
 			);
 		},
@@ -642,6 +687,22 @@ function formatDaemonStatus(queue: AkashaDaemonQueueItem[], runnableCount: numbe
 		lines.push(`- ${item.kind} due=${item.dueTime}${target}: ${item.summary}`);
 	}
 	if (queue.length === 0) lines.push("- (none)");
+	return lines.join("\n");
+}
+
+function formatCacheFreshness(freshness: ReturnType<typeof getAkashaProjectionCacheFreshness>): string {
+	const lines = [
+		`Akasha projection cache: ${freshness.status}`,
+		`- path: ${freshness.cachePath}`,
+		`- reason: ${freshness.reasons.length > 0 ? freshness.reasons.join("; ") : "fresh"}`,
+	];
+	if (freshness.metadata) {
+		lines.push(
+			`- source logs: ${freshness.metadata.sourceLogPaths.length}`,
+			`- events: ${freshness.metadata.highWaterMark.eventCount}`,
+			`- updated: ${freshness.metadata.updatedTime}`,
+		);
+	}
 	return lines.join("\n");
 }
 

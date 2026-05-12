@@ -5,12 +5,22 @@ export { buildAkashaActionGateContext } from "./action-gate.js";
 export type { AkashaArtifactState, AkashaArtifactStatus } from "./artifact-state.js";
 export { buildArtifactStates } from "./artifact-state.js";
 export { buildTemporalBrief, buildTemporalBriefWithEmbeddings } from "./brief.js";
+export type { AkashaPendingCallbackPrompt } from "./callback-inbox.js";
+export {
+	appendAkashaPendingCallbackPrompt,
+	listAkashaPendingCallbackPrompts,
+	resolveAkashaCallbackInboxPath,
+} from "./callback-inbox.js";
 export type {
+	AkashaCallbackDispatchContext,
+	AkashaCallbackDispatcher,
+	AkashaCallbackDispatchMode,
+	AkashaCallbackDispatchResult,
 	AkashaCallbackRunnerOptions,
 	AkashaCallbackRunnerResult,
 	AkashaRunnableCallback,
 } from "./callback-runner.js";
-export { buildRunnableCallbacks, runAkashaCallbackRunner } from "./callback-runner.js";
+export { buildRunnableCallbacks, createAkashaCallbackDispatcher, runAkashaCallbackRunner } from "./callback-runner.js";
 export {
 	createAkashaCollectorExtension,
 	resolveAkashaEmbeddingIndexPath,
@@ -47,6 +57,7 @@ export type {
 	AkashaEmbeddingSearchOptions,
 	AkashaEmbeddingSearchResult,
 	AkashaEmbeddingStore,
+	AkashaEmbeddingTombstone,
 } from "./embedding-store.js";
 export { InMemoryAkashaEmbeddingStore, JsonlAkashaEmbeddingStore } from "./embedding-store.js";
 export type { AkashaExportFormat, AkashaExportOptions } from "./event-export.js";
@@ -122,6 +133,7 @@ export type {
 export {
 	AKASHA_PROJECTION_CACHE_VERSION,
 	buildCachedAkashaTemporalStateSnapshot,
+	clearAkashaProjectionCache,
 	getAkashaProjectionCacheFreshness,
 	loadOrBuildAkashaProjection,
 	readFreshAkashaProjectionCache,

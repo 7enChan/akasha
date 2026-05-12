@@ -2,6 +2,18 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import chalk from "chalk";
 import { CONFIG_DIR_NAME, getAgentDir, IS_AKASHA_ENTRYPOINT } from "./config.js";
+import type { AkashaCallbackDispatchMode } from "./core/akasha/callback-runner.js";
+import { buildRunnableCallbacks, runAkashaCallbackRunner } from "./core/akasha/callback-runner.js";
+import { buildAkashaDaemonQueue, runAkashaDaemonQueuePass } from "./core/akasha/daemon-queue.js";
+import { JsonlAkashaStore } from "./core/akasha/jsonl-store.js";
+import {
+	buildCachedAkashaTemporalStateSnapshot,
+	clearAkashaProjectionCache,
+	getAkashaProjectionCacheFreshness,
+	sessionStateProjectionCacheKey,
+} from "./core/akasha/projection-cache.js";
+import { buildAkashaSessionIndex } from "./core/akasha/session-index.js";
+import type { AkashaStore } from "./core/akasha/types.js";
 import { SettingsManager } from "./core/settings-manager.js";
 
 export async function handleAkashaEntrypointCommand(
@@ -11,7 +23,15 @@ export async function handleAkashaEntrypointCommand(
 ): Promise<boolean> {
 	if (!IS_AKASHA_ENTRYPOINT && !options.force) return false;
 	const [command] = args;
-	if (command !== "init" && command !== "enable" && command !== "status") return false;
+	if (
+		command !== "init" &&
+		command !== "enable" &&
+		command !== "status" &&
+		command !== "daemon" &&
+		command !== "cache"
+	) {
+		return false;
+	}
 
 	if (args.includes("--help") || args.includes("-h")) {
 		printAkashaEntrypointHelp(command);
@@ -21,6 +41,16 @@ export async function handleAkashaEntrypointCommand(
 	const agentDir = getAgentDir();
 	const settingsManager = SettingsManager.create(cwd, agentDir);
 	const scope = args.includes("--global") ? "global" : "project";
+
+	if (command === "daemon") {
+		await handleAkashaDaemonCommand(args.slice(1), cwd, agentDir, settingsManager);
+		return true;
+	}
+
+	if (command === "cache") {
+		handleAkashaCacheCommand(args.slice(1), cwd, agentDir, settingsManager);
+		return true;
+	}
 
 	if (command === "init" || command === "enable") {
 		settingsManager.applyAkashaDogfoodPreset(scope);
@@ -50,11 +80,15 @@ export async function handleAkashaEntrypointCommand(
 
 function printAkashaEntrypointHelp(command?: string): void {
 	const usage =
-		command === "status"
-			? "akasha status"
-			: command === "enable"
-				? "akasha enable [--global]"
-				: "akasha init [--global]";
+		command === "daemon"
+			? "akasha daemon status|tick|run [--scope current|project|all] [--dispatch record_only|terminal_notification|agent_prompt_file]"
+			: command === "cache"
+				? "akasha cache status|clear|rebuild [--scope current|project|all]"
+				: command === "status"
+					? "akasha status"
+					: command === "enable"
+						? "akasha enable [--global]"
+						: "akasha init [--global]";
 	console.log(`${chalk.bold("Akasha")} - local-first time layer for coding-agent sessions
 
 ${chalk.bold("Usage:")}
@@ -64,10 +98,198 @@ ${chalk.bold("Commands:")}
   akasha init [--global]    Write the Akasha dogfood preset
   akasha enable [--global]  Alias for init
   akasha status             Show resolved Akasha state
+  akasha daemon ...         Run Akasha daemon operations outside a session
+  akasha cache ...          Inspect or rebuild Akasha projection caches
   akasha                    Start the agent runtime
 
 By default init writes project settings at ${CONFIG_DIR_NAME}/settings.json.
 Use --global to write ${CONFIG_DIR_NAME}/agent/settings.json instead.`);
+}
+
+async function handleAkashaDaemonCommand(
+	args: string[],
+	cwd: string,
+	agentDir: string,
+	settingsManager: SettingsManager,
+): Promise<void> {
+	const action = args[0] ?? "status";
+	const settings = settingsManager.getAkashaSettings();
+	const stores = loadStoresForScope(cwd, agentDir, settings.eventLogDir, parseScope(args));
+	if (stores.length === 0) {
+		console.log("Akasha daemon: no event logs found.");
+		return;
+	}
+
+	if (action === "status") {
+		const queueCount = stores.reduce(
+			(total, store) =>
+				total +
+				buildAkashaDaemonQueue(store.buildTimeline({ limit: 1000 }), {
+					reflection: settings.reflection,
+				}).length,
+			0,
+		);
+		const runnableCount = stores.reduce(
+			(total, store) => total + buildRunnableCallbacks(store.buildTimeline({ limit: 1000 })).length,
+			0,
+		);
+		console.log("Akasha daemon status");
+		console.log(`- sessions: ${stores.length}`);
+		console.log(`- queue items: ${queueCount}`);
+		console.log(`- runnable callbacks: ${runnableCount}`);
+		return;
+	}
+
+	if (action === "tick") {
+		let scheduled = 0;
+		let due = 0;
+		let queue = 0;
+		for (const store of stores) {
+			const result = runAkashaDaemonQueuePass(store, { reflection: settings.reflection });
+			scheduled += result.scheduledCallbacks.length;
+			due += result.dueCallbacks.length;
+			queue += result.queue.length;
+		}
+		console.log("Akasha daemon tick");
+		console.log(`- sessions: ${stores.length}`);
+		console.log(`- scheduled callbacks: ${scheduled}`);
+		console.log(`- due callbacks: ${due}`);
+		console.log(`- queue items: ${queue}`);
+		return;
+	}
+
+	if (action === "run") {
+		const dispatchMode = parseDispatchMode(args);
+		let claimed = 0;
+		let dispatched = 0;
+		let failed = 0;
+		for (const store of stores) {
+			const result = runAkashaCallbackRunner(store, {
+				reflection: settings.reflection,
+				dispatchMode,
+				agentDir,
+			});
+			claimed += result.claimed.length;
+			dispatched += result.dispatched.length;
+			failed += result.failed.length;
+		}
+		console.log("Akasha daemon run");
+		console.log(`- sessions: ${stores.length}`);
+		console.log(`- dispatch: ${dispatchMode}`);
+		console.log(`- claimed: ${claimed}`);
+		console.log(`- dispatched: ${dispatched}`);
+		console.log(`- failed: ${failed}`);
+		return;
+	}
+
+	console.log(
+		"Usage: akasha daemon status|tick|run [--scope current|project|all] [--dispatch record_only|terminal_notification|agent_prompt_file]",
+	);
+}
+
+function handleAkashaCacheCommand(
+	args: string[],
+	cwd: string,
+	agentDir: string,
+	settingsManager: SettingsManager,
+): void {
+	const action = args[0] ?? "status";
+	const settings = settingsManager.getAkashaSettings();
+	const stores = loadStoresForScope(cwd, agentDir, settings.eventLogDir, parseScope(args));
+	if (stores.length === 0) {
+		console.log("Akasha cache: no event logs found.");
+		return;
+	}
+
+	if (action === "status") {
+		const statuses = stores.map((store) =>
+			getAkashaProjectionCacheFreshness({
+				agentDir,
+				eventLogDir: settings.eventLogDir,
+				scope: "session",
+				cacheKey: sessionStateProjectionCacheKey(store, 1000),
+				sourceLogPaths: [store.eventLogPath],
+			}),
+		);
+		console.log("Akasha cache status");
+		console.log(`- sessions: ${stores.length}`);
+		console.log(`- fresh: ${statuses.filter((item) => item.status === "fresh").length}`);
+		console.log(`- stale: ${statuses.filter((item) => item.status === "stale").length}`);
+		console.log(`- missing: ${statuses.filter((item) => item.status === "missing").length}`);
+		console.log(`- invalid: ${statuses.filter((item) => item.status === "invalid").length}`);
+		return;
+	}
+
+	if (action === "clear") {
+		let cleared = 0;
+		for (const store of stores) {
+			if (
+				clearAkashaProjectionCache({
+					agentDir,
+					eventLogDir: settings.eventLogDir,
+					scope: "session",
+					cacheKey: sessionStateProjectionCacheKey(store, 1000),
+					sourceLogPaths: [store.eventLogPath],
+				})
+			) {
+				cleared++;
+			}
+		}
+		console.log("Akasha cache clear");
+		console.log(`- sessions: ${stores.length}`);
+		console.log(`- cleared: ${cleared}`);
+		return;
+	}
+
+	if (action === "rebuild") {
+		for (const store of stores) {
+			clearAkashaProjectionCache({
+				agentDir,
+				eventLogDir: settings.eventLogDir,
+				scope: "session",
+				cacheKey: sessionStateProjectionCacheKey(store, 1000),
+				sourceLogPaths: [store.eventLogPath],
+			});
+			buildCachedAkashaTemporalStateSnapshot(store, {
+				agentDir,
+				eventLogDir: settings.eventLogDir,
+				limit: 1000,
+			});
+		}
+		console.log("Akasha cache rebuild");
+		console.log(`- sessions: ${stores.length}`);
+		console.log(`- rebuilt: ${stores.length}`);
+		return;
+	}
+
+	console.log("Usage: akasha cache status|clear|rebuild [--scope current|project|all]");
+}
+
+function loadStoresForScope(
+	cwd: string,
+	agentDir: string,
+	eventLogDir: string | undefined,
+	scope: "current" | "project" | "all",
+): AkashaStore[] {
+	return buildAkashaSessionIndex({
+		agentDir,
+		eventLogDir,
+		cwd: scope === "all" ? undefined : cwd,
+	}).map((entry) => new JsonlAkashaStore(entry.eventLogPath));
+}
+
+function parseScope(args: string[]): "current" | "project" | "all" {
+	const index = args.indexOf("--scope");
+	const value = index >= 0 ? args[index + 1] : undefined;
+	if (value === "all" || value === "project" || value === "current") return value;
+	return "project";
+}
+
+function parseDispatchMode(args: string[]): AkashaCallbackDispatchMode {
+	const index = args.indexOf("--dispatch");
+	const value = index >= 0 ? args[index + 1] : undefined;
+	if (value === "record_only" || value === "terminal_notification" || value === "agent_prompt_file") return value;
+	return "agent_prompt_file";
 }
 
 function projectSettingsPath(cwd: string): string {

@@ -50,6 +50,31 @@ describe("Akasha embeddings", () => {
 		expect(second).toMatchObject({ considered: 1, indexed: 0, skipped: 1 });
 	});
 
+	it("tombstones, purges, and compacts governed embedding records", async () => {
+		const path = join(tempDir, "embeddings.jsonl");
+		const store = new JsonlAkashaEmbeddingStore(path);
+		await store.upsert({
+			id: "event:evt-1:v1",
+			targetType: "event",
+			targetId: "evt-1",
+			text: "sensitive preference",
+			vector: [1, 0],
+			createdAt: "2026-05-11T00:00:00.000Z",
+		});
+
+		await store.tombstone?.("evt-1", "suppressed");
+		const compacted = await store.compact?.();
+		const reloaded = new JsonlAkashaEmbeddingStore(path);
+
+		expect(await store.has("event:evt-1:v1")).toBe(false);
+		expect(await store.search([1, 0], { limit: 1 })).toHaveLength(0);
+		expect(compacted).toBe(1);
+		expect(await reloaded.listTombstones?.()).toHaveLength(1);
+		const purged = await reloaded.purge?.("evt-1");
+		expect(purged).toBe(0);
+		expect(await reloaded.listTombstones?.()).toHaveLength(0);
+	});
+
 	it("extracts crystal and calibration text for embeddings", () => {
 		expect(
 			eventEmbeddingText(event(1, "memory.crystal.created", { statement: "User prefers explicit time syscalls" })),

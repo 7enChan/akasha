@@ -214,6 +214,7 @@ export class AkashaTemporalKernel {
 	runCallbackRunner(options: Omit<AkashaCallbackRunnerOptions, "reflection"> = {}): AkashaCallbackRunnerResult {
 		return runAkashaCallbackRunner(this.store, {
 			...options,
+			agentDir: options.agentDir ?? this.agentDir,
 			reflection: this.reflection,
 		});
 	}

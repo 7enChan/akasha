@@ -598,6 +598,25 @@ agent proposes
 - callback/risk/validation 的显式引用优先于文本匹配。
 - graph edge 的来源和置信度可被用户审计。
 
+## M26：Daemon Execution and Trust Boundary
+
+**目标：** 让 Akasha 从“会话内可运行的时间层”推进到“会话外也能推动时间责任的本地时间运行时”，同时加固 cache 与 embedding 治理边界。
+
+**核心能力：**
+
+- Real Callback Dispatcher：callback runner 支持 `record_only`、`terminal_notification`、`agent_prompt_file`。其中 `agent_prompt_file` 会写入 `<agentDir>/akasha/inbox/pending-callbacks.jsonl`。
+- CLI Daemon：新增 shell 级 `akasha daemon status|tick|run --scope current|project|all --dispatch ...`，不需要进入 interactive session。
+- Cache Commands：新增 shell 级 `akasha cache status|clear|rebuild` 与 session 内 `/akasha cache status|clear|rebuild`。
+- Projection Cache Hardening：project timeline cache 只跟踪匹配 cwd 的 session logs，cache fingerprint 支持 fast 与 strong SHA-256 模式。
+- Embedding Governance：embedding store 支持 tombstone、purge、compact，maintenance 会 tombstone suppressed/redacted/omitted event embeddings。
+
+**退出标准：**
+
+- due callback 能在 CLI daemon 中被 claim、policy evaluate、dispatch，并写入 pending callback inbox。
+- Akasha 在没有 active chat session 时也能 tick/run daemon。
+- project cache 不再因为无关 cwd 的 session log 改变而失效。
+- suppress/redact 后相关 embedding records 不再进入 search/list，并可 compact/purge。
+
 ## 阶段依赖图
 
 ```text
@@ -629,6 +648,7 @@ M0 Event Ontology
 	                                                -> M23 Universal Policy Surface
 	                                                  -> M24 Syscall Audit Mode
 	                                                    -> M25 Causal Task Graph
+	                                                      -> M26 Daemon Execution / Trust Boundary
 ```
 
 ## 每阶段通用质量门槛
@@ -643,34 +663,34 @@ M0 Event Ontology
 
 ## 当前优先级
 
-当前已完成 **M21-M25 OS 化收束** 第一轮切片：projection cache、callback runner、universal policy surface、syscall audit mode 和 causal task graph 已进入代码基线。
+当前已完成 **M26 Daemon Execution and Trust Boundary** 第一轮切片：callback dispatchers、CLI daemon/cache、projection cache hardening 和 embedding tombstone/purge 已进入代码基线。
 
 推荐下一轮开发标题：
 
 ```text
-Akasha M26: Daemon Execution and Projection Cache Hardening
+Akasha M27: Agent Resume Inbox and Strict Temporal Protocol
 ```
 
 建议第一批文件边界：
 
-- `packages/coding-agent/src/core/akasha/projection-cache.ts`
-- `packages/coding-agent/src/core/akasha/callback-runner.ts`
+- `packages/coding-agent/src/core/akasha/callback-inbox.ts`
+- `packages/coding-agent/src/core/akasha/collector-extension.ts`
 - `packages/coding-agent/src/core/akasha/policy-kernel.ts`
-- `packages/coding-agent/src/core/akasha/embedding-store.ts`
-- `packages/coding-agent/src/core/akasha/maintenance-runner.ts`
-- `packages/coding-agent/test/akasha-projection-cache.test.ts`
-- `packages/coding-agent/test/akasha-callback-runner.test.ts`
+- `packages/coding-agent/src/core/akasha/time-syscall-audit.ts`
+- `packages/coding-agent/src/akasha-entry-cli.ts`
+- `packages/coding-agent/test/akasha-callback-dispatcher.test.ts`
+- `packages/coding-agent/test/akasha-time-syscall-audit.test.ts`
 
 建议第一批命令：
 
-- `/akasha doctor`
-- `/akasha daemon status`
-- `/akasha daemon run`
+- `akasha daemon run --dispatch agent_prompt_file`
+- `akasha cache rebuild`
+- `/akasha cache status`
 - `/akasha task-model`
 
 建议第一批验收：
 
-- callback runner 可以接入真实 agent/user notification dispatch，而不是只做 record-only dispatch。
-- projection cache 有更细粒度 invalidation 和 cache rebuild command。
-- embedding index 对 suppress/redact 事件支持 tombstone/purge。
-- Universal Policy Surface 覆盖 embedding、reflection、export、syscall mutation 等剩余 runtime action。
+- pending callback inbox 能在下次 `akasha` 启动时进入行动前上下文或启动提示。
+- strict syscall audit mode 能要求 repair，而不是只做 soft fallback。
+- Universal Policy Surface 增加实际 OS 级规则：export confirmation、reflection governed-only、embedding no suppressed source。
+- root README 与产品叙事进一步从 Pi 切到 Akasha。

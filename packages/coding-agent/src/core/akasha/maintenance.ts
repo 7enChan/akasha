@@ -2,6 +2,7 @@ import type { ResolvedAkashaReflectionSettings } from "../settings-manager.js";
 import { indexAkashaEmbeddings } from "./embedding-indexer.js";
 import type { AkashaEmbeddingProvider } from "./embedding-provider.js";
 import type { AkashaEmbeddingStore } from "./embedding-store.js";
+import { projectAkashaGovernedEvents } from "./governance-projection.js";
 import { deriveOpenLoopEvents } from "./open-loops.js";
 import { decideReflection } from "./reflection-policy.js";
 import type { AkashaReflectionPassResult } from "./reflection-worker.js";
@@ -40,11 +41,25 @@ export async function runAkashaMaintenancePass(
 
 	let embeddingIndexed = 0;
 	if (options.embeddingStore && options.embeddingProvider) {
+		const governed = projectAkashaGovernedEvents(store.buildTimeline({ limit: options.limit ?? 1000 }));
+		const tombstoneIds = [
+			...governed.suppressedEventIds,
+			...governed.omittedDerivedEventIds,
+			...governed.redactedSourceEventIds,
+		];
+		if (options.embeddingStore.tombstone) {
+			for (const eventId of tombstoneIds) {
+				await options.embeddingStore.tombstone(eventId, "governance_projection");
+			}
+		}
 		const indexed = await indexAkashaEmbeddings(
-			store.buildTimeline({ limit: options.limit ?? 1000 }),
+			governed.events.filter((event) => !governed.redactedSourceEventIds.includes(event.eventId)),
 			options.embeddingStore,
 			options.embeddingProvider,
 		);
+		if (options.embeddingStore.compact && tombstoneIds.length > 0) {
+			await options.embeddingStore.compact();
+		}
 		embeddingIndexed = indexed.indexed;
 	}
 

@@ -2,7 +2,7 @@ import { projectAkashaGovernedEvents } from "./governance-projection.js";
 import { JsonlAkashaStore } from "./jsonl-store.js";
 import { orderAkashaEvents } from "./ordering.js";
 import { loadOrBuildAkashaProjection } from "./projection-cache.js";
-import { buildAkashaSessionIndex, listAkashaEventLogPaths } from "./session-index.js";
+import { buildAkashaSessionIndex } from "./session-index.js";
 import type { AkashaEvent } from "./types.js";
 import { type AkashaProjectState, buildProjectState } from "./world-model.js";
 
@@ -31,10 +31,12 @@ export interface AkashaProjectTimeline {
 }
 
 export function buildAkashaProjectTimeline(options: AkashaProjectTimelineOptions): AkashaProjectTimeline {
-	const sourceLogPaths = listAkashaEventLogPaths({
+	const sessions = buildAkashaSessionIndex({
 		agentDir: options.agentDir,
 		eventLogDir: options.eventLogDir,
+		cwd: options.cwd,
 	});
+	const sourceLogPaths = sessions.map((session) => session.eventLogPath);
 	return loadOrBuildAkashaProjection(
 		{
 			agentDir: options.agentDir,
@@ -44,11 +46,6 @@ export function buildAkashaProjectTimeline(options: AkashaProjectTimelineOptions
 			sourceLogPaths,
 		},
 		() => {
-			const sessions = buildAkashaSessionIndex({
-				agentDir: options.agentDir,
-				eventLogDir: options.eventLogDir,
-				cwd: options.cwd,
-			});
 			const events = orderAkashaEvents(
 				sessions.flatMap((session) =>
 					new JsonlAkashaStore(session.eventLogPath).buildTimeline({ limit: Number.MAX_SAFE_INTEGER }),

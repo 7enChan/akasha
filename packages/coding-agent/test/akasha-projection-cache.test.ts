@@ -3,9 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { JsonlAkashaStore } from "../src/core/akasha/jsonl-store.js";
+import { buildAkashaProjectTimeline } from "../src/core/akasha/project-timeline.js";
 import {
 	buildCachedAkashaTemporalStateSnapshot,
 	getAkashaProjectionCacheFreshness,
+	loadOrBuildAkashaProjection,
 	sessionStateProjectionCacheKey,
 } from "../src/core/akasha/projection-cache.js";
 
@@ -79,4 +81,66 @@ describe("Akasha projection cache", () => {
 		expect(rebuilt.value.taskModel.decisions[0]?.text).toContain("cache");
 		expect(rebuiltAfterDelete.rebuilt).toBe(true);
 	});
+
+	it("can use strong source fingerprints", () => {
+		const store = new JsonlAkashaStore(join(tempDir, "events", "session-strong.jsonl"));
+		store.append({
+			kind: "message.user.submitted",
+			sessionId: "session-strong",
+			streamId: "session:session-strong",
+			eventTime: "2026-05-12T00:00:00.000Z",
+			actor: "user",
+			payload: { text: "Build strong fingerprints" },
+		});
+
+		const cached = loadOrBuildAkashaProjection(
+			{
+				agentDir: tempDir,
+				scope: "session",
+				cacheKey: "strong-fingerprint",
+				sourceLogPaths: [store.eventLogPath],
+				fingerprintMode: "strong",
+			},
+			() => ({ value: { ok: true }, events: store.buildTimeline({ limit: 10 }) }),
+		);
+
+		expect(cached.freshness.metadata?.sourceFingerprints[0]?.sha256).toMatch(/^[a-f0-9]{64}$/);
+	});
+
+	it("scopes project timeline cache source logs to matching cwd sessions", () => {
+		const projectA = join(tempDir, "project-a");
+		const projectB = join(tempDir, "project-b");
+		const storeA = seedSession("session-a", projectA);
+		seedSession("session-b", projectB);
+
+		const timeline = buildAkashaProjectTimeline({
+			agentDir: tempDir,
+			eventLogDir: join(tempDir, "events"),
+			cwd: projectA,
+		});
+		const freshness = getAkashaProjectionCacheFreshness({
+			agentDir: tempDir,
+			eventLogDir: join(tempDir, "events"),
+			scope: "project",
+			cacheKey: `project-timeline:${projectA}:all`,
+			sourceLogPaths: [storeA.eventLogPath],
+		});
+
+		expect(timeline.sessions.map((session) => session.sessionId)).toEqual(["session-a"]);
+		expect(freshness.status).toBe("fresh");
+		expect(freshness.metadata?.sourceLogPaths).toEqual([storeA.eventLogPath]);
+	});
+
+	function seedSession(sessionId: string, cwd: string): JsonlAkashaStore {
+		const store = new JsonlAkashaStore(join(tempDir, "events", `${sessionId}.jsonl`));
+		store.append({
+			kind: "session.started",
+			sessionId,
+			streamId: `session:${sessionId}`,
+			eventTime: "2026-05-12T00:00:00.000Z",
+			actor: "system",
+			payload: { cwd },
+		});
+		return store;
+	}
 });
