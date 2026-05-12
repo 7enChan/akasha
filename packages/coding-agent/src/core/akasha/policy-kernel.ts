@@ -2,6 +2,17 @@ import type { AkashaEvent } from "./types.js";
 
 export type AkashaPolicyDecisionAction = "allow" | "block" | "require_confirmation" | "require_validation" | "defer";
 
+export type AkashaRuntimeActionType =
+	| "tool_call"
+	| "context_injection"
+	| "temporal_recall"
+	| "callback_dispatch"
+	| "reflection"
+	| "embedding_index"
+	| "memory_projection"
+	| "export"
+	| "syscall";
+
 export interface AkashaPolicyRule {
 	id: string;
 	description: string;
@@ -22,7 +33,17 @@ export interface AkashaPolicyCallbackSchedule {
 }
 
 export interface AkashaPolicyEvaluationInput {
-	actionType: string;
+	actionType: AkashaRuntimeActionType | string;
+	subject?: string;
+	objectId?: string;
+	payload?: Record<string, unknown>;
+	evidenceEvents?: AkashaEvent[];
+	rules?: AkashaPolicyRule[];
+	now?: Date;
+}
+
+export interface AkashaRuntimePolicyAction {
+	type: AkashaRuntimeActionType;
 	subject?: string;
 	objectId?: string;
 	payload?: Record<string, unknown>;
@@ -53,6 +74,18 @@ export function evaluateAkashaPolicy(input: AkashaPolicyEvaluationInput): Akasha
 		reason: "No Akasha policy rule required intervention.",
 		evidenceEventIds: [],
 	};
+}
+
+export function evaluateAkashaRuntimePolicy(action: AkashaRuntimePolicyAction): AkashaPolicyDecision {
+	return evaluateAkashaPolicy({
+		actionType: action.type,
+		subject: action.subject,
+		objectId: action.objectId,
+		payload: action.payload,
+		evidenceEvents: action.evidenceEvents,
+		rules: action.rules,
+		now: action.now,
+	});
 }
 
 export function createPolicyEvaluatedPayload(

@@ -515,6 +515,89 @@ agent proposes
 - crystal 召回能携带 source chain。
 - prediction correction 和 failure lesson 能作为高权重 RAG 事实进入 temporal recall。
 
+## M21：Projection Cache and Compaction Boundary
+
+**目标：** 让事件流继续作为事实源，同时为常用时间投影建立可删除、可重建、可校验的新索引层。
+
+**核心能力：**
+
+- Projection Cache：新增 versioned cache，记录 source log paths、file fingerprint、event high-water mark、schema/projection version。
+- Session State Cache：`AkashaTemporalKernel.buildState()` 可复用 session projection cache，避免每次重建 temporal/project/task model。
+- Project/User Timeline Cache：跨 session project timeline 和 user timeline 使用相同 cache 机制，source log 改变后自动失效。
+- Doctor Freshness：`/akasha doctor` 显示 projection cache path、fresh/stale/missing/invalid 和失效原因。
+
+**退出标准：**
+
+- 删除 cache 后可从 JSONL 重建。
+- source event log append 后旧 cache 被判定 stale。
+- cache 不成为事实源；所有 projection 仍能从 JSONL 重放生成。
+
+## M22：Callback Runner
+
+**目标：** 把 callback lifecycle 从“到期列表”推进到可执行、可审计的 daemon runner。
+
+**核心能力：**
+
+- Callback Execution Events：新增 `time.callback.claimed`、`time.callback.dispatched`、`time.callback.failed`。
+- Runner Flow：daemon tick -> due callback -> claim -> policy evaluation -> dispatch/fail。
+- Slash Commands：新增 `/akasha daemon status`、`/akasha daemon tick`、`/akasha daemon run`。
+- Idempotent Dispatch：同一个 callback 已 dispatched/failed/completed/cancelled 后不会重复执行。
+
+**退出标准：**
+
+- due callback 能被 runner claim 和 dispatch。
+- callback dispatch 写入 `policy.evaluated`。
+- runner 重复执行不会重复 claim/dispatch 同一 callback。
+
+## M23：Universal Policy Surface
+
+**目标：** 把 policy 从 tool gate 扩展为 Time OS runtime action 的统一策略面。
+
+**核心能力：**
+
+- Runtime Action Types：覆盖 `tool_call`、`context_injection`、`temporal_recall`、`callback_dispatch`、`reflection`、`embedding_index`、`memory_projection`、`export`、`syscall`。
+- Runtime Policy Evaluation：新增通用 `evaluateAkashaRuntimePolicy()`。
+- Audited Non-tool Actions：context injection 和 callback dispatch 会写入 `policy.evaluated`，进入 `/akasha why` 因果链。
+
+**退出标准：**
+
+- Action Gate 注入前有 policy audit。
+- Callback dispatch 前有 policy audit。
+- 后续 runtime action 能复用同一策略接口，不需要再增加散落规则。
+
+## M24：Syscall Audit Mode
+
+**目标：** 让承诺/预测 syscall 从“推荐工具”变成可审计协议。
+
+**核心能力：**
+
+- Audit Events：新增 `time_syscall.audit`、`time_syscall.missing`、`time_syscall.repaired`。
+- Soft Fallback：assistant 表达未来责任但没有 syscall 时，写入 `time_syscall.missing`，并把 heuristic promise/prediction parent 到 audit event。
+- Satisfied Audit：assistant 已调用 Akasha syscall tool 时，写入 satisfied audit，不再重复 heuristic extraction。
+
+**退出标准：**
+
+- 自然语言承诺缺少 syscall 时有可审计 missing event。
+- fallback promise/prediction 能追溯到 missing audit。
+- 显式 syscall 不产生重复 heuristic commitment。
+
+## M25：Causal Task Graph
+
+**目标：** 把 task graph 从文本启发式升级为因果优先的工作图。
+
+**核心能力：**
+
+- Edge Metadata：graph edge 增加 `source`、`confidence`、`sourceEventIds`。
+- Causal Edges：优先使用 `parentEventIds`、`sourceEventIds`、`evidenceEventIds`、`targetEventId`、`resolverEventId` 等事件字段建立边。
+- Heuristic Fallback：文本 path/basename 匹配保留为低置信度 fallback。
+- Slash Command Audit：`/akasha task-model` 显示 edge source/confidence。
+
+**退出标准：**
+
+- promise/task 能通过 `parentEventIds` 连接到目标或上游事件。
+- callback/risk/validation 的显式引用优先于文本匹配。
+- graph edge 的来源和置信度可被用户审计。
+
 ## 阶段依赖图
 
 ```text
@@ -541,6 +624,11 @@ M0 Event Ontology
 	                                      -> M18 Explicit Time Syscalls
 	                                        -> M19 Temporal Behavior Evals
 	                                          -> M20 Reflection / RAG Hardening
+	                                            -> M21 Projection Cache
+	                                              -> M22 Callback Runner
+	                                                -> M23 Universal Policy Surface
+	                                                  -> M24 Syscall Audit Mode
+	                                                    -> M25 Causal Task Graph
 ```
 
 ## 每阶段通用质量门槛
@@ -555,31 +643,34 @@ M0 Event Ontology
 
 ## 当前优先级
 
-当前已进入 **M21 Time OS Persistence and Compaction Boundary** 切片。原因是：M18-M20 已经补齐显式时间系统调用、行为评测和长期记忆/RAG 加固，下一步应处理更接近 OS 层的持久化边界、投影缓存和跨 session 性能。
+当前已完成 **M21-M25 OS 化收束** 第一轮切片：projection cache、callback runner、universal policy surface、syscall audit mode 和 causal task graph 已进入代码基线。
 
 推荐下一轮开发标题：
 
 ```text
-Akasha M21: Temporal Persistence and Projection Cache
+Akasha M26: Daemon Execution and Projection Cache Hardening
 ```
 
 建议第一批文件边界：
 
-- `packages/coding-agent/src/core/akasha/jsonl-store.ts`
 - `packages/coding-agent/src/core/akasha/projection-cache.ts`
-- `packages/coding-agent/src/core/akasha/session-index.ts`
-- `packages/coding-agent/src/core/akasha/temporal-kernel.ts`
+- `packages/coding-agent/src/core/akasha/callback-runner.ts`
+- `packages/coding-agent/src/core/akasha/policy-kernel.ts`
+- `packages/coding-agent/src/core/akasha/embedding-store.ts`
+- `packages/coding-agent/src/core/akasha/maintenance-runner.ts`
 - `packages/coding-agent/test/akasha-projection-cache.test.ts`
-- `packages/coding-agent/test/akasha-store.test.ts`
+- `packages/coding-agent/test/akasha-callback-runner.test.ts`
 
 建议第一批命令：
 
 - `/akasha doctor`
-- `/akasha project-state project`
+- `/akasha daemon status`
+- `/akasha daemon run`
 - `/akasha task-model`
 
 建议第一批验收：
 
-- 大事件流下常用 projection 不需要每次全量重建。
-- projection cache 可由 JSONL 事件流安全重建，不成为事实源。
-- compaction/branch 边界不会破坏 task graph、karma ledger 和 action gate。
+- callback runner 可以接入真实 agent/user notification dispatch，而不是只做 record-only dispatch。
+- projection cache 有更细粒度 invalidation 和 cache rebuild command。
+- embedding index 对 suppress/redact 事件支持 tombstone/purge。
+- Universal Policy Surface 覆盖 embedding、reflection、export、syscall mutation 等剩余 runtime action。

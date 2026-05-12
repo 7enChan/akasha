@@ -6,11 +6,16 @@ describe("Akasha task model", () => {
 	it("projects typed goals, tasks, decisions, and risks from events", () => {
 		const model = buildAkashaTaskModel([
 			event(1, "message.user.submitted", { text: "目标：实现 Akasha Policy Kernel" }, { actor: "user" }),
-			event(2, "promise.created", {
-				promiseId: "promise-1",
-				summary: "Run Akasha tests",
-				dueTime: "2026-05-11T00:00:00.000Z",
-			}),
+			event(
+				2,
+				"promise.created",
+				{
+					promiseId: "promise-1",
+					summary: "Run Akasha tests",
+					dueTime: "2026-05-11T00:00:00.000Z",
+				},
+				{ parentEventIds: ["evt-1"] },
+			),
 			event(3, "artifact.patched", { path: "src/policy.ts", isError: false }, { objectId: "src/policy.ts" }),
 			event(4, "message.agent.completed", { text: "I will implement the policy kernel first." }, { actor: "agent" }),
 			event(5, "tool.blocked", {
@@ -41,10 +46,16 @@ describe("Akasha task model", () => {
 		expect(model.graph.edges.map((edge) => [edge.type, edge.from, edge.to])).toEqual(
 			expect.arrayContaining([
 				["belongs_to", "task:promise-1", "goal:evt-1"],
+				["caused_by", "task:promise-1", "goal:evt-1"],
 				["tracks", "callback:callback-1", "task:promise-1"],
 				["blocks", "risk:artifact:src/policy.ts:modified_unverified", "artifact:src/policy.ts"],
 			]),
 		);
+		expect(model.graph.edges.find((edge) => edge.type === "caused_by")).toMatchObject({
+			source: "causal",
+			confidence: 0.9,
+			sourceEventIds: ["evt-2", "evt-1"],
+		});
 	});
 });
 

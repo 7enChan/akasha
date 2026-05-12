@@ -17,7 +17,6 @@ import type {
 	ResolvedAkashaReflectionSettings,
 	ResolvedAkashaSettings,
 } from "../settings-manager.js";
-import { deriveAccountabilityEventsFromAssistant } from "./accountability-extractor.js";
 import { buildTemporalBrief, buildTemporalBriefWithEmbeddings } from "./brief.js";
 import { registerAkashaCommands } from "./commands.js";
 import { createAkashaEmbeddingProvider } from "./embedding-provider.js";
@@ -36,6 +35,7 @@ import {
 } from "./mapper.js";
 import { deriveOpenLoopEvents } from "./open-loops.js";
 import { createAkashaTemporalKernel } from "./temporal-kernel.js";
+import { auditAkashaTimeSyscalls, parentFallbacksToAudit } from "./time-syscall-audit.js";
 import {
 	appendAkashaCommitment,
 	appendAkashaCommitmentResolution,
@@ -467,10 +467,14 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			if (recorded && event.message.role === "assistant") {
 				latestAssistantEventId = recorded.eventId;
 				rememberAssistantToolParents(event.message, recorded.eventId);
-				if (!hasAkashaTimeSyscallToolCall(event.message)) {
-					for (const draft of deriveAccountabilityEventsFromAssistant(recorded)) {
-						append(draft);
-					}
+				const audit = auditAkashaTimeSyscalls(recorded, {
+					hasSyscallToolCall: hasAkashaTimeSyscallToolCall(event.message),
+					sourceKeyPrefix: `time-syscall-audit:${sessionId}:${recorded.eventId}`,
+					mode: "soft",
+				});
+				const auditEvent = audit.audit ? append(audit.audit) : undefined;
+				for (const draft of parentFallbacksToAudit(audit.fallbacks, auditEvent?.eventId)) {
+					append(draft);
 				}
 			}
 			return undefined;

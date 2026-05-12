@@ -5,6 +5,12 @@ export { buildAkashaActionGateContext } from "./action-gate.js";
 export type { AkashaArtifactState, AkashaArtifactStatus } from "./artifact-state.js";
 export { buildArtifactStates } from "./artifact-state.js";
 export { buildTemporalBrief, buildTemporalBriefWithEmbeddings } from "./brief.js";
+export type {
+	AkashaCallbackRunnerOptions,
+	AkashaCallbackRunnerResult,
+	AkashaRunnableCallback,
+} from "./callback-runner.js";
+export { buildRunnableCallbacks, runAkashaCallbackRunner } from "./callback-runner.js";
 export {
 	createAkashaCollectorExtension,
 	resolveAkashaEmbeddingIndexPath,
@@ -91,8 +97,10 @@ export type {
 	AkashaPolicyDecisionAction,
 	AkashaPolicyEvaluationInput,
 	AkashaPolicyRule,
+	AkashaRuntimeActionType,
+	AkashaRuntimePolicyAction,
 } from "./policy-kernel.js";
-export { createPolicyEvaluatedPayload, evaluateAkashaPolicy } from "./policy-kernel.js";
+export { createPolicyEvaluatedPayload, evaluateAkashaPolicy, evaluateAkashaRuntimePolicy } from "./policy-kernel.js";
 export { createAkashaDogfoodPreset, mergeAkashaSettings } from "./preset.js";
 export type {
 	AkashaProjectTimeline,
@@ -100,6 +108,28 @@ export type {
 	AkashaProjectTimelineSession,
 } from "./project-timeline.js";
 export { buildAkashaProjectTimeline, summarizeProjectTimeline } from "./project-timeline.js";
+export type {
+	AkashaCachedProjectionResult,
+	AkashaProjectionCacheFreshness,
+	AkashaProjectionCacheMetadata,
+	AkashaProjectionCacheOptions,
+	AkashaProjectionCacheScope,
+	AkashaProjectionCacheStatus,
+	AkashaProjectionHighWaterMark,
+	AkashaProjectionSourceFingerprint,
+	AkashaTemporalStateSnapshot,
+} from "./projection-cache.js";
+export {
+	AKASHA_PROJECTION_CACHE_VERSION,
+	buildCachedAkashaTemporalStateSnapshot,
+	getAkashaProjectionCacheFreshness,
+	loadOrBuildAkashaProjection,
+	readFreshAkashaProjectionCache,
+	resolveAkashaProjectionCacheDir,
+	resolveAkashaProjectionCachePath,
+	sessionStateProjectionCacheKey,
+	writeAkashaProjectionCache,
+} from "./projection-cache.js";
 export type { AkashaCausalIndex } from "./projections.js";
 export { buildCausalIndex, findCausalPath, findDescendants } from "./projections.js";
 export type {
@@ -146,6 +176,7 @@ export type {
 	AkashaRiskState,
 	AkashaTaskGraph,
 	AkashaTaskGraphEdge,
+	AkashaTaskGraphEdgeSource,
 	AkashaTaskGraphEdgeType,
 	AkashaTaskGraphNode,
 	AkashaTaskGraphNodeType,
@@ -163,8 +194,9 @@ export { formatAkashaTemporalBehaviorEvalResult, runAkashaTemporalBehaviorEval }
 export type {
 	AkashaActionContextBuildOptions,
 	AkashaActionContextBuildResult,
+	AkashaRuntimePolicyEvaluationOptions,
+	AkashaRuntimePolicyEvaluationResult,
 	AkashaTemporalKernelOptions,
-	AkashaTemporalStateSnapshot,
 } from "./temporal-kernel.js";
 export { AkashaTemporalKernel, createAkashaTemporalKernel, hashText } from "./temporal-kernel.js";
 export type { AkashaTemporalRagMatch, AkashaTemporalRagOptions, AkashaTemporalRagResult } from "./temporal-rag.js";
@@ -178,6 +210,8 @@ export type {
 	AkashaTemporalState,
 } from "./temporal-state.js";
 export { buildTemporalState } from "./temporal-state.js";
+export type { AkashaTimeSyscallAuditResult } from "./time-syscall-audit.js";
+export { auditAkashaTimeSyscalls, parentFallbacksToAudit } from "./time-syscall-audit.js";
 export type {
 	AkashaTimeSyscallContext,
 	AkashaTimeSyscallToolName,

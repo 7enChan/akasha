@@ -3,6 +3,11 @@ import type { ToolCallEvent } from "../extensions/types.js";
 import type { ResolvedAkashaActionGateSettings, ResolvedAkashaReflectionSettings } from "../settings-manager.js";
 import { type AkashaActionGateContext, buildAkashaActionGateContext } from "./action-gate.js";
 import {
+	type AkashaCallbackRunnerOptions,
+	type AkashaCallbackRunnerResult,
+	runAkashaCallbackRunner,
+} from "./callback-runner.js";
+import {
 	type AkashaCallbackDraftOptions,
 	type AkashaDaemonQueuePassResult,
 	createCallbackScheduledDraft,
@@ -10,13 +15,21 @@ import {
 	markAkashaCallbackCompleted,
 	runAkashaDaemonQueuePass,
 } from "./daemon-queue.js";
+import {
+	type AkashaPolicyDecision,
+	type AkashaRuntimePolicyAction,
+	createPolicyEvaluatedPayload,
+	evaluateAkashaRuntimePolicy,
+} from "./policy-kernel.js";
 import { buildAkashaProjectTimeline } from "./project-timeline.js";
-import { type AkashaTaskModel, buildAkashaTaskModel } from "./task-model.js";
-import { type AkashaTemporalState, buildTemporalState } from "./temporal-state.js";
+import {
+	type AkashaCachedProjectionResult,
+	type AkashaTemporalStateSnapshot,
+	buildCachedAkashaTemporalStateSnapshot,
+} from "./projection-cache.js";
 import { type AkashaToolGateDecision, evaluateAkashaToolGate } from "./tool-gate.js";
 import type { AkashaEvent, AkashaEventDraft, AkashaStore } from "./types.js";
 import { buildAkashaUserTimeline } from "./user-timeline.js";
-import { type AkashaProjectState, buildProjectState } from "./world-model.js";
 
 export interface AkashaTemporalKernelOptions {
 	store: AkashaStore;
@@ -41,10 +54,17 @@ export interface AkashaActionContextBuildResult {
 	auditEvent?: AkashaEvent;
 }
 
-export interface AkashaTemporalStateSnapshot {
-	temporal: AkashaTemporalState;
-	project: AkashaProjectState;
-	taskModel: AkashaTaskModel;
+export interface AkashaRuntimePolicyEvaluationOptions {
+	action: AkashaRuntimePolicyAction;
+	parentEventIds?: string[];
+	correlationId?: string;
+	sourceKey?: string;
+	eventTime?: string;
+}
+
+export interface AkashaRuntimePolicyEvaluationResult {
+	decision: AkashaPolicyDecision;
+	event: AkashaEvent;
 }
 
 export class AkashaTemporalKernel {
@@ -69,12 +89,15 @@ export class AkashaTemporalKernel {
 	}
 
 	buildState(limit = 1000): AkashaTemporalStateSnapshot {
-		const events = this.store.buildTimeline({ limit });
-		return {
-			temporal: buildTemporalState(events),
-			project: buildProjectState(events),
-			taskModel: buildAkashaTaskModel(events),
-		};
+		return this.buildStateWithCache(limit).value;
+	}
+
+	buildStateWithCache(limit = 1000): AkashaCachedProjectionResult<AkashaTemporalStateSnapshot> {
+		return buildCachedAkashaTemporalStateSnapshot(this.store, {
+			agentDir: this.agentDir,
+			eventLogDir: this.eventLogDir,
+			limit,
+		});
 	}
 
 	buildActionContext(options: AkashaActionContextBuildOptions): AkashaActionContextBuildResult {
@@ -100,6 +123,23 @@ export class AkashaTemporalKernel {
 			maxItems: options.settings.maxItems,
 		});
 		if (!gate) return {};
+		const policy = this.evaluateRuntimePolicy({
+			action: {
+				type: "context_injection",
+				subject: "akasha.action_gate",
+				objectId: "akasha.action_gate",
+				payload: {
+					eventIds: gate.eventIds,
+					sections: gate.sections,
+					tokenEstimate: gate.tokenEstimate,
+				},
+			},
+			parentEventIds: options.parentEventIds ?? [],
+			correlationId: options.correlationId,
+			sourceKey: options.sourceKey ? `${options.sourceKey}:policy` : undefined,
+			eventTime: options.eventTime,
+		});
+		if (policy.decision.action !== "allow") return {};
 
 		const auditEvent = this.store.append({
 			kind: "action_gate.injected",
@@ -109,7 +149,7 @@ export class AkashaTemporalKernel {
 			actor: "system",
 			subjectId: "akasha.action_gate",
 			sourceKey: options.sourceKey,
-			parentEventIds: options.parentEventIds ?? [],
+			parentEventIds: [policy.event.eventId, ...(options.parentEventIds ?? [])],
 			correlationId: options.correlationId,
 			payload: {
 				contentHash: hashText(gate.text),
@@ -130,10 +170,51 @@ export class AkashaTemporalKernel {
 		});
 	}
 
+	evaluateRuntimePolicy(options: AkashaRuntimePolicyEvaluationOptions): AkashaRuntimePolicyEvaluationResult {
+		const decision = evaluateAkashaRuntimePolicy(options.action);
+		const eventTime = options.eventTime ?? new Date().toISOString();
+		const event = this.store.append({
+			kind: "policy.evaluated",
+			sessionId: this.sessionId,
+			streamId: this.streamId,
+			eventTime,
+			actor: "system",
+			subjectId: "akasha.policy_kernel",
+			objectId: options.action.objectId ?? options.action.subject ?? options.action.type,
+			sourceKey:
+				options.sourceKey ??
+				`runtime-policy:${this.sessionId}:${options.action.type}:${options.action.subject ?? "action"}:${eventTime}`,
+			parentEventIds: options.parentEventIds ?? [],
+			correlationId: options.correlationId,
+			payload: createPolicyEvaluatedPayload(
+				{
+					actionType: options.action.type,
+					subject: options.action.subject,
+					objectId: options.action.objectId,
+					payload: options.action.payload,
+					evidenceEvents: options.action.evidenceEvents,
+					rules: options.action.rules,
+					now: options.action.now,
+				},
+				decision,
+			),
+			importance: decision.action === "allow" ? 0.45 : 0.85,
+			ttlPolicy: "long_term",
+		});
+		return { decision, event };
+	}
+
 	runDaemonPass(now?: Date): AkashaDaemonQueuePassResult {
 		return runAkashaDaemonQueuePass(this.store, {
 			reflection: this.reflection,
 			now,
+		});
+	}
+
+	runCallbackRunner(options: Omit<AkashaCallbackRunnerOptions, "reflection"> = {}): AkashaCallbackRunnerResult {
+		return runAkashaCallbackRunner(this.store, {
+			...options,
+			reflection: this.reflection,
 		});
 	}
 

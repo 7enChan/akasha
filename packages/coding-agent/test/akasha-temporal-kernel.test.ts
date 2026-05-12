@@ -67,10 +67,11 @@ describe("Akasha temporal kernel", () => {
 		});
 
 		expect(result.gate?.text).toContain("Due callbacks");
-		expect(result.auditEvent).toMatchObject({
-			kind: "action_gate.injected",
-			parentEventIds: [user.eventId],
-		});
+		expect(result.auditEvent?.kind).toBe("action_gate.injected");
+		expect(result.auditEvent?.parentEventIds).toEqual(expect.arrayContaining([user.eventId]));
+		expect(store.buildTimeline({ limit: 20 }).map((event) => event.kind)).toEqual(
+			expect.arrayContaining(["policy.evaluated", "action_gate.injected"]),
+		);
 		expect(result.auditEvent?.payload).toMatchObject({
 			sections: expect.arrayContaining(["project_state", "due_callbacks"]),
 			eventIds: expect.arrayContaining([user.eventId]),

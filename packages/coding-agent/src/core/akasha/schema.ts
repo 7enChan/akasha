@@ -15,8 +15,14 @@ export const KNOWN_AKASHA_EVENT_KINDS = new Set<AkashaEventKind>([
 	"daemon.tick",
 	"time.callback.scheduled",
 	"time.callback.due",
+	"time.callback.claimed",
+	"time.callback.dispatched",
 	"time.callback.completed",
+	"time.callback.failed",
 	"time.callback.cancelled",
+	"time_syscall.audit",
+	"time_syscall.missing",
+	"time_syscall.repaired",
 	"message.user.submitted",
 	"message.agent.completed",
 	"message.tool_result.recorded",
@@ -213,7 +219,10 @@ function validatePayloadShape(event: AkashaEvent, issues: AkashaSchemaIssue[]): 
 	if (
 		(event.kind === "time.callback.scheduled" ||
 			event.kind === "time.callback.due" ||
+			event.kind === "time.callback.claimed" ||
+			event.kind === "time.callback.dispatched" ||
 			event.kind === "time.callback.completed" ||
+			event.kind === "time.callback.failed" ||
 			event.kind === "time.callback.cancelled") &&
 		typeof event.payload.callbackId !== "string"
 	) {

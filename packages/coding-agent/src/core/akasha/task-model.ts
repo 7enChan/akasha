@@ -42,10 +42,11 @@ export interface AkashaRiskState {
 export type AkashaTaskGraphNodeType = "goal" | "task" | "decision" | "risk" | "artifact" | "callback";
 
 export type AkashaTaskGraphEdgeType = "belongs_to" | "blocks" | "caused_by" | "tracks" | "validates" | "references";
+export type AkashaTaskGraphEdgeSource = "explicit" | "causal" | "temporal" | "heuristic";
 
 export interface AkashaCallbackState {
 	callbackId: string;
-	status: "scheduled" | "due" | "completed" | "cancelled";
+	status: "scheduled" | "due" | "claimed" | "dispatched" | "completed" | "failed" | "cancelled";
 	text: string;
 	eventId: string;
 	eventTime: string;
@@ -69,6 +70,9 @@ export interface AkashaTaskGraphEdge {
 	type: AkashaTaskGraphEdgeType;
 	eventId?: string;
 	reason?: string;
+	source?: AkashaTaskGraphEdgeSource;
+	confidence?: number;
+	sourceEventIds?: string[];
 }
 
 export interface AkashaTaskGraph {
@@ -139,7 +143,7 @@ export function buildAkashaTaskModel(events: AkashaEvent[]): AkashaTaskModel {
 		decisions,
 		risks,
 		callbacks,
-		graph: buildTaskGraph({ goals, tasks, decisions, risks, callbacks, artifacts }),
+		graph: buildTaskGraph({ events: ordered, goals, tasks, decisions, risks, callbacks, artifacts }),
 		lastEventId: lastEvent?.eventId,
 		lastEventTime: lastEvent?.eventTime,
 	};
@@ -196,7 +200,10 @@ function extractCallbacks(events: AkashaEvent[]): AkashaCallbackState[] {
 		if (
 			event.kind !== "time.callback.scheduled" &&
 			event.kind !== "time.callback.due" &&
+			event.kind !== "time.callback.claimed" &&
+			event.kind !== "time.callback.dispatched" &&
 			event.kind !== "time.callback.completed" &&
+			event.kind !== "time.callback.failed" &&
 			event.kind !== "time.callback.cancelled"
 		) {
 			continue;
@@ -217,12 +224,16 @@ function extractCallbacks(events: AkashaEvent[]): AkashaCallbackState[] {
 
 function callbackStatus(kind: AkashaEvent["kind"]): AkashaCallbackState["status"] {
 	if (kind === "time.callback.completed") return "completed";
+	if (kind === "time.callback.failed") return "failed";
 	if (kind === "time.callback.cancelled") return "cancelled";
+	if (kind === "time.callback.dispatched") return "dispatched";
+	if (kind === "time.callback.claimed") return "claimed";
 	if (kind === "time.callback.due") return "due";
 	return "scheduled";
 }
 
 function buildTaskGraph(input: {
+	events: AkashaEvent[];
 	goals: AkashaGoalState[];
 	tasks: AkashaTaskState[];
 	decisions: AkashaDecisionState[];
@@ -267,6 +278,9 @@ function buildTaskGraph(input: {
 				type: "belongs_to",
 				eventId: task.eventId,
 				reason: "task follows the active goal at its event time",
+				source: "temporal",
+				confidence: 0.6,
+				sourceEventIds: [task.eventId, goal.eventId],
 			});
 		}
 	}
@@ -288,6 +302,9 @@ function buildTaskGraph(input: {
 				type: "references",
 				eventId: task.eventId,
 				reason: "task text references artifact",
+				source: "heuristic",
+				confidence: 0.45,
+				sourceEventIds: [task.eventId, artifact.lastEventId],
 			});
 		}
 	}
@@ -309,6 +326,9 @@ function buildTaskGraph(input: {
 				type: "blocks",
 				eventId: risk.eventId,
 				reason: risk.reason,
+				source: "explicit",
+				confidence: 0.85,
+				sourceEventIds: [risk.eventId],
 			});
 		}
 		for (const task of input.tasks.filter((task) => !risk.objectId || textReferences(task.text, risk.objectId))) {
@@ -318,6 +338,9 @@ function buildTaskGraph(input: {
 				type: "blocks",
 				eventId: risk.eventId,
 				reason: risk.reason,
+				source: risk.objectId ? "heuristic" : "temporal",
+				confidence: risk.objectId ? 0.5 : 0.35,
+				sourceEventIds: [risk.eventId, task.eventId],
 			});
 		}
 	}
@@ -338,6 +361,9 @@ function buildTaskGraph(input: {
 				to: nodeId("goal", goal.goalId),
 				type: "belongs_to",
 				eventId: decision.eventId,
+				source: "temporal",
+				confidence: 0.55,
+				sourceEventIds: [decision.eventId, goal.eventId],
 			});
 		}
 		for (const artifact of input.artifacts.filter((artifact) => textReferences(decision.text, artifact.path))) {
@@ -346,6 +372,9 @@ function buildTaskGraph(input: {
 				to: nodeId("artifact", artifact.path),
 				type: "references",
 				eventId: decision.eventId,
+				source: "heuristic",
+				confidence: 0.45,
+				sourceEventIds: [decision.eventId, artifact.lastEventId],
 			});
 		}
 	}
@@ -368,6 +397,9 @@ function buildTaskGraph(input: {
 				to: nodeId("task", targetTask.taskId),
 				type: "tracks",
 				eventId: callback.eventId,
+				source: "explicit",
+				confidence: 0.95,
+				sourceEventIds: [callback.eventId, targetTask.eventId],
 			});
 		}
 		const targetArtifact = input.artifacts.find((artifact) => artifact.lastEventId === callback.targetEventId);
@@ -377,6 +409,9 @@ function buildTaskGraph(input: {
 				to: nodeId("artifact", targetArtifact.path),
 				type: "tracks",
 				eventId: callback.eventId,
+				source: "explicit",
+				confidence: 0.95,
+				sourceEventIds: [callback.eventId, targetArtifact.lastEventId],
 			});
 		}
 	}
@@ -398,11 +433,68 @@ function buildTaskGraph(input: {
 				to: nodeId("artifact", artifact.path),
 				type: "validates",
 				eventId: artifact.lastValidationEventId,
+				source: "explicit",
+				confidence: 0.8,
+				sourceEventIds: [artifact.lastValidationEventId, artifact.lastEventId],
 			});
 		}
 	}
 
+	addCausalEdges(input.events, nodes, addEdge);
 	return { nodes, edges };
+}
+
+function addCausalEdges(
+	events: AkashaEvent[],
+	nodes: AkashaTaskGraphNode[],
+	addEdge: (edge: AkashaTaskGraphEdge) => void,
+): void {
+	const nodesByEventId = new Map<string, AkashaTaskGraphNode[]>();
+	for (const node of nodes) {
+		const list = nodesByEventId.get(node.eventId) ?? [];
+		list.push(node);
+		nodesByEventId.set(node.eventId, list);
+	}
+	for (const event of events) {
+		const childNodes = nodesByEventId.get(event.eventId) ?? [];
+		if (childNodes.length === 0) continue;
+		for (const parentId of event.parentEventIds) {
+			const parentNodes = nodesByEventId.get(parentId) ?? [];
+			for (const child of childNodes) {
+				for (const parent of parentNodes) {
+					if (child.id === parent.id) continue;
+					addEdge({
+						from: child.id,
+						to: parent.id,
+						type: "caused_by",
+						eventId: event.eventId,
+						reason: "parentEventIds",
+						source: "causal",
+						confidence: 0.9,
+						sourceEventIds: [event.eventId, parentId],
+					});
+				}
+			}
+		}
+		for (const referenceId of payloadReferenceIds(event)) {
+			const referenceNodes = nodesByEventId.get(referenceId) ?? [];
+			for (const child of childNodes) {
+				for (const target of referenceNodes) {
+					if (child.id === target.id) continue;
+					addEdge({
+						from: child.id,
+						to: target.id,
+						type: "references",
+						eventId: event.eventId,
+						reason: "explicit event reference",
+						source: "explicit",
+						confidence: 0.85,
+						sourceEventIds: [event.eventId, referenceId],
+					});
+				}
+			}
+		}
+	}
 }
 
 function nearestGoal(goals: AkashaGoalState[], eventTime: string): AkashaGoalState | undefined {
@@ -415,6 +507,29 @@ function nodeId(type: AkashaTaskGraphNodeType, id: string): string {
 
 function sameEdge(a: AkashaTaskGraphEdge, b: AkashaTaskGraphEdge): boolean {
 	return a.from === b.from && a.to === b.to && a.type === b.type && a.eventId === b.eventId;
+}
+
+function payloadReferenceIds(event: AkashaEvent): string[] {
+	const ids: string[] = [];
+	for (const key of [
+		"targetEventId",
+		"resolverEventId",
+		"rootEventId",
+		"evidenceEventId",
+		"auditEventId",
+		"dueEventId",
+		"claimEventId",
+	]) {
+		const value = event.payload[key];
+		if (typeof value === "string") ids.push(value);
+	}
+	for (const key of ["sourceEventIds", "supportingEventIds", "eventIds", "evidenceEventIds"]) {
+		const value = event.payload[key];
+		if (Array.isArray(value)) {
+			ids.push(...value.filter((item): item is string => typeof item === "string"));
+		}
+	}
+	return [...new Set(ids)];
 }
 
 function textReferences(text: string, path: string): boolean {

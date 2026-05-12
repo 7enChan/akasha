@@ -57,13 +57,21 @@ Inside an Akasha-enabled session, use:
 /akasha timeline 30
 /akasha action-gate
 /akasha queue
+/akasha daemon status
+/akasha daemon tick
+/akasha daemon run
 /akasha task-model
+/akasha doctor
 /akasha why <eventId|toolCallId>
 /akasha callback-complete <callbackId> [evidenceEventId]
 /akasha callback-cancel <callbackId> [reason]
 ```
 
-`/akasha task-model` includes both the legacy typed lists and the M15 graph projection. The graph connects goals, tasks, decisions, risks, artifacts, and callbacks with edges such as `belongs_to`, `blocks`, `tracks`, and `validates`.
+`/akasha task-model` includes both the legacy typed lists and the graph projection. The graph connects goals, tasks, decisions, risks, artifacts, and callbacks with edges such as `belongs_to`, `blocks`, `tracks`, and `validates`. Edges include source and confidence metadata, so explicit/causal links can be distinguished from temporal or heuristic fallbacks.
+
+`/akasha daemon tick` materializes due callbacks. `/akasha daemon run` claims runnable callbacks, evaluates callback dispatch policy, and records dispatch or failure events. Completion and cancellation remain explicit through `/akasha callback-complete` and `/akasha callback-cancel`.
+
+`/akasha doctor` reports event counts, schema issues, retention pressure, and projection cache freshness.
 
 Akasha projections apply governance before injecting hidden context. Suppressed events hide their causal descendants and supported derived facts; redacted source events remain visible only in redacted form, while derived facts sourced from them are omitted from projections.
 
@@ -82,6 +90,8 @@ akasha_check_prediction
 
 These tools write first-class `promise.*` and `prediction.*` events with source metadata. Natural-language extraction remains as a fallback, but assistant responses that call an Akasha syscall tool do not also create duplicate heuristic commitments.
 
+When the assistant expresses future responsibility without a syscall, Akasha records `time_syscall.missing` in soft audit mode and parents the heuristic fallback commitment/prediction to that audit event. When an assistant response uses a syscall tool, Akasha records a satisfied `time_syscall.audit`.
+
 ## Long-term Memory
 
 Reflection and embeddings remain opt-in. When enabled, reflection runs over governed events, so suppressed/redacted sources do not become long-term crystals. Crystal payloads include `sourceEventIds` for auditability and governance propagation.
@@ -99,6 +109,14 @@ For the default installation this is:
 ```text
 ~/.pi/agent/akasha/events/
 ```
+
+Projection caches are written under:
+
+```text
+<agentDir>/akasha/projections/
+```
+
+Projection caches are indexes, not facts. They include source log fingerprints and high-water marks, are invalidated when source logs change, and can be deleted safely because Akasha rebuilds them from JSONL.
 
 Override with:
 

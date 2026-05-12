@@ -3,7 +3,8 @@ import { JsonlAkashaStore } from "./jsonl-store.js";
 import { buildKarmaLedger } from "./karma-ledger.js";
 import { buildMemoryGovernance } from "./memory-governance.js";
 import { orderAkashaEvents } from "./ordering.js";
-import { buildAkashaSessionIndex } from "./session-index.js";
+import { loadOrBuildAkashaProjection } from "./projection-cache.js";
+import { buildAkashaSessionIndex, listAkashaEventLogPaths } from "./session-index.js";
 import type { AkashaEvent } from "./types.js";
 
 export interface AkashaUserTimelineOptions {
@@ -35,14 +36,34 @@ export interface AkashaUserTimeline {
 }
 
 export function buildAkashaUserTimeline(options: AkashaUserTimelineOptions): AkashaUserTimeline {
-	const events = orderAkashaEvents(
-		buildAkashaSessionIndex({
+	const sourceLogPaths = listAkashaEventLogPaths({
+		agentDir: options.agentDir,
+		eventLogDir: options.eventLogDir,
+	});
+	return loadOrBuildAkashaProjection(
+		{
 			agentDir: options.agentDir,
 			eventLogDir: options.eventLogDir,
-		}).flatMap((entry) => new JsonlAkashaStore(entry.eventLogPath).buildTimeline({ limit: Number.MAX_SAFE_INTEGER })),
-	);
-	const limited = typeof options.limit === "number" && options.limit > 0 ? events.slice(-options.limit) : events;
-	return buildAkashaUserTimelineFromEvents(limited);
+			scope: "user",
+			cacheKey: `user-timeline:${options.limit ?? "all"}`,
+			sourceLogPaths,
+		},
+		() => {
+			const events = orderAkashaEvents(
+				buildAkashaSessionIndex({
+					agentDir: options.agentDir,
+					eventLogDir: options.eventLogDir,
+				}).flatMap((entry) =>
+					new JsonlAkashaStore(entry.eventLogPath).buildTimeline({ limit: Number.MAX_SAFE_INTEGER }),
+				),
+			);
+			const limited = typeof options.limit === "number" && options.limit > 0 ? events.slice(-options.limit) : events;
+			return {
+				events,
+				value: buildAkashaUserTimelineFromEvents(limited),
+			};
+		},
+	).value;
 }
 
 export function buildAkashaUserTimelineFromEvents(events: AkashaEvent[]): AkashaUserTimeline {

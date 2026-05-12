@@ -1,7 +1,8 @@
 import { projectAkashaGovernedEvents } from "./governance-projection.js";
 import { JsonlAkashaStore } from "./jsonl-store.js";
 import { orderAkashaEvents } from "./ordering.js";
-import { buildAkashaSessionIndex } from "./session-index.js";
+import { loadOrBuildAkashaProjection } from "./projection-cache.js";
+import { buildAkashaSessionIndex, listAkashaEventLogPaths } from "./session-index.js";
 import type { AkashaEvent } from "./types.js";
 import { type AkashaProjectState, buildProjectState } from "./world-model.js";
 
@@ -30,35 +31,54 @@ export interface AkashaProjectTimeline {
 }
 
 export function buildAkashaProjectTimeline(options: AkashaProjectTimelineOptions): AkashaProjectTimeline {
-	const sessions = buildAkashaSessionIndex({
+	const sourceLogPaths = listAkashaEventLogPaths({
 		agentDir: options.agentDir,
 		eventLogDir: options.eventLogDir,
-		cwd: options.cwd,
 	});
-	const events = orderAkashaEvents(
-		sessions.flatMap((session) =>
-			new JsonlAkashaStore(session.eventLogPath).buildTimeline({ limit: Number.MAX_SAFE_INTEGER }),
-		),
-	);
-	const governedEvents = projectAkashaGovernedEvents(events).events;
-	const limited =
-		typeof options.limit === "number" && options.limit > 0 ? governedEvents.slice(-options.limit) : governedEvents;
-	const lastEvent = governedEvents.at(-1);
-
-	return {
-		cwd: options.cwd,
-		sessions: sessions.map((session) => ({
-			sessionId: session.sessionId,
-			eventLogPath: session.eventLogPath,
-			eventCount: session.eventCount,
-			startedAt: session.startedAt,
-			lastEventTime: session.lastEventTime,
-		})),
-		events: limited,
-		state: buildProjectState(governedEvents),
-		lastEventId: lastEvent?.eventId,
-		lastEventTime: lastEvent?.eventTime,
-	};
+	return loadOrBuildAkashaProjection(
+		{
+			agentDir: options.agentDir,
+			eventLogDir: options.eventLogDir,
+			scope: "project",
+			cacheKey: `project-timeline:${options.cwd}:${options.limit ?? "all"}`,
+			sourceLogPaths,
+		},
+		() => {
+			const sessions = buildAkashaSessionIndex({
+				agentDir: options.agentDir,
+				eventLogDir: options.eventLogDir,
+				cwd: options.cwd,
+			});
+			const events = orderAkashaEvents(
+				sessions.flatMap((session) =>
+					new JsonlAkashaStore(session.eventLogPath).buildTimeline({ limit: Number.MAX_SAFE_INTEGER }),
+				),
+			);
+			const governedEvents = projectAkashaGovernedEvents(events).events;
+			const limited =
+				typeof options.limit === "number" && options.limit > 0
+					? governedEvents.slice(-options.limit)
+					: governedEvents;
+			const lastEvent = governedEvents.at(-1);
+			return {
+				events: governedEvents,
+				value: {
+					cwd: options.cwd,
+					sessions: sessions.map((session) => ({
+						sessionId: session.sessionId,
+						eventLogPath: session.eventLogPath,
+						eventCount: session.eventCount,
+						startedAt: session.startedAt,
+						lastEventTime: session.lastEventTime,
+					})),
+					events: limited,
+					state: buildProjectState(governedEvents),
+					lastEventId: lastEvent?.eventId,
+					lastEventTime: lastEvent?.eventTime,
+				},
+			};
+		},
+	).value;
 }
 
 export function summarizeProjectTimeline(timeline: AkashaProjectTimeline): string {
