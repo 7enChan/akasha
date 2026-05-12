@@ -1,3 +1,4 @@
+import { projectAkashaGovernedEvents } from "./governance-projection.js";
 import { JsonlAkashaStore } from "./jsonl-store.js";
 import { orderAkashaEvents } from "./ordering.js";
 import { buildAkashaSessionIndex } from "./session-index.js";
@@ -39,8 +40,10 @@ export function buildAkashaProjectTimeline(options: AkashaProjectTimelineOptions
 			new JsonlAkashaStore(session.eventLogPath).buildTimeline({ limit: Number.MAX_SAFE_INTEGER }),
 		),
 	);
-	const limited = typeof options.limit === "number" && options.limit > 0 ? events.slice(-options.limit) : events;
-	const lastEvent = events.at(-1);
+	const governedEvents = projectAkashaGovernedEvents(events).events;
+	const limited =
+		typeof options.limit === "number" && options.limit > 0 ? governedEvents.slice(-options.limit) : governedEvents;
+	const lastEvent = governedEvents.at(-1);
 
 	return {
 		cwd: options.cwd,
@@ -52,7 +55,7 @@ export function buildAkashaProjectTimeline(options: AkashaProjectTimelineOptions
 			lastEventTime: session.lastEventTime,
 		})),
 		events: limited,
-		state: buildProjectState(events),
+		state: buildProjectState(governedEvents),
 		lastEventId: lastEvent?.eventId,
 		lastEventTime: lastEvent?.eventTime,
 	};

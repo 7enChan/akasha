@@ -1,6 +1,7 @@
 import { orderAkashaEvents } from "./ordering.js";
 import { buildTemporalState } from "./temporal-state.js";
 import type { AkashaEvent, AkashaEventDraft } from "./types.js";
+import { validationCoversArtifact } from "./validation.js";
 
 export interface AkashaOpenLoopRecord {
 	loopKey: string;
@@ -121,12 +122,16 @@ function findResolverForLoop(
 	const isAfterRoot = (event: AkashaEvent): boolean =>
 		ordered.findIndex((item) => item.eventId === event.eventId) > rootIndex;
 	if (record.reason === "artifact_changed_without_validation") {
+		const knownPaths = ordered.flatMap((event) => {
+			const path = event.objectId ?? stringPayload(event, "path");
+			return path ? [path] : [];
+		});
 		return ordered.find(
 			(event) =>
 				isAfterRoot(event) &&
 				event.kind === "command.executed" &&
-				event.payload.isError !== true &&
-				isValidationCommand(event),
+				!!record.objectId &&
+				validationCoversArtifact(event, record.objectId, knownPaths),
 		);
 	}
 
@@ -154,18 +159,6 @@ function findResolverForLoop(
 	}
 
 	return undefined;
-}
-
-function isValidationCommand(event: AkashaEvent): boolean {
-	const command = typeof event.payload.command === "string" ? event.payload.command.toLowerCase() : "";
-	return (
-		command.includes("test") ||
-		command.includes("vitest") ||
-		command.includes("jest") ||
-		command.includes("tsc") ||
-		command.includes("build") ||
-		command.includes("lint")
-	);
 }
 
 function makeLoopKey(rootEventId: string, reason: string): string {

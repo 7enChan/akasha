@@ -1,8 +1,8 @@
 import { indexAkashaEmbeddings } from "./embedding-indexer.js";
 import type { AkashaEmbeddingProvider } from "./embedding-provider.js";
 import type { AkashaEmbeddingStore } from "./embedding-store.js";
+import { projectAkashaGovernedEvents } from "./governance-projection.js";
 import { rankRecallEvents } from "./recall-policy.js";
-import { applyAkashaRedactions } from "./redaction.js";
 import { retrieveTemporalContext } from "./temporal-rag.js";
 import type { AkashaEvent, AkashaStore, AkashaTemporalBrief } from "./types.js";
 
@@ -11,7 +11,7 @@ export function buildTemporalBrief(
 	options: { maxEvents?: number; queryText?: string } = {},
 ): AkashaTemporalBrief | undefined {
 	const maxEvents = Math.max(1, Math.floor(options.maxEvents ?? 12));
-	const recent = applyAkashaRedactions(store.listRecent({ limit: Math.max(maxEvents * 4, 24) }));
+	const recent = projectAkashaGovernedEvents(store.listRecent({ limit: Math.max(maxEvents * 4, 24) })).events;
 	if (recent.length === 0) return undefined;
 
 	const ranked = rankRecallEvents(recent, options.queryText)
@@ -53,7 +53,7 @@ export async function buildTemporalBriefWithEmbeddings(
 	} = {} as never,
 ): Promise<AkashaTemporalBrief | undefined> {
 	const maxEvents = Math.max(1, Math.floor(options.maxEvents ?? 12));
-	const events = applyAkashaRedactions(store.buildTimeline({ limit: Math.max(maxEvents * 20, 200) }));
+	const events = projectAkashaGovernedEvents(store.buildTimeline({ limit: Math.max(maxEvents * 20, 200) })).events;
 	if (events.length === 0) return undefined;
 
 	await indexAkashaEmbeddings(events, options.embeddingStore, options.embeddingProvider);
@@ -71,7 +71,7 @@ export async function buildTemporalBriefWithEmbeddings(
 		return buildTemporalBrief(store, { maxEvents, queryText });
 	}
 
-	const recent = applyAkashaRedactions(store.listRecent({ limit: Math.max(maxEvents * 4, 24) }));
+	const recent = projectAkashaGovernedEvents(store.listRecent({ limit: Math.max(maxEvents * 4, 24) })).events;
 	const activeFiles = [...new Set(recent.map((event) => event.objectId).filter(isFileLike))].slice(0, 6);
 	const failedTools = recent.filter(isFailedTool).slice(0, 3);
 	const lines = ["<akasha_temporal_brief>", "Semantic temporal recall for this session:"];

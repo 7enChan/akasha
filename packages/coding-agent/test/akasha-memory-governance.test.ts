@@ -40,6 +40,25 @@ describe("Akasha memory governance", () => {
 		expect(timeline.preferences.map((item) => item.eventId)).not.toContain(sensitive.eventId);
 		expect(timeline.suppressedEventIds).toContain(sensitive.eventId);
 	});
+
+	it("propagates suppression to causal descendants and supported derived facts", () => {
+		const source = event(1, "message.user.submitted", { text: "我希望你记住这个临时偏好。" }, { actor: "user" });
+		const derived = event(
+			2,
+			"preference.inferred",
+			{ statement: "User prefers temporary behavior.", supportingEventIds: [source.eventId] },
+			{ parentEventIds: [source.eventId] },
+		);
+		const suppressed = materialize(3, createMemoryGovernanceEvent(source, "suppress", "temporary"));
+
+		const governance = buildMemoryGovernance([source, derived, suppressed]);
+		const timeline = buildAkashaUserTimelineFromEvents([source, derived, suppressed]);
+
+		expect(governance.directSuppressedEventIds.has(source.eventId)).toBe(true);
+		expect(governance.suppressedEventIds.has(source.eventId)).toBe(true);
+		expect(governance.suppressedEventIds.has(derived.eventId)).toBe(true);
+		expect(timeline.preferences.map((item) => item.eventId)).not.toContain(derived.eventId);
+	});
 });
 
 function materialize(sequence: number, draft: AkashaEventDraft): AkashaEvent {

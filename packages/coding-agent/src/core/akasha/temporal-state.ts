@@ -1,5 +1,6 @@
 import { orderAkashaEvents } from "./ordering.js";
 import type { AkashaEvent } from "./types.js";
+import { inferValidationCommand } from "./validation.js";
 
 export interface AkashaCurrentIntent {
 	eventId: string;
@@ -56,8 +57,6 @@ export function buildTemporalState(events: AkashaEvent[]): AkashaTemporalState {
 	let currentIntent: AkashaCurrentIntent | undefined;
 	let lastCompactionEventId: string | undefined;
 	let lastBranchSummaryEventId: string | undefined;
-	let lastValidationEvent: AkashaEvent | undefined;
-	let lastValidationIndex = -1;
 
 	for (const [index, event] of ordered.entries()) {
 		if (event.kind === "message.user.submitted") {
@@ -71,6 +70,7 @@ export function buildTemporalState(events: AkashaEvent[]): AkashaTemporalState {
 		if (isArtifactEvent(event)) {
 			const path = artifactPath(event);
 			if (path) {
+				const previous = activeFiles.get(path);
 				const changed = event.kind === "artifact.patched" || event.kind === "artifact.written";
 				activeFiles.set(path, {
 					path,
@@ -78,19 +78,17 @@ export function buildTemporalState(events: AkashaEvent[]): AkashaTemporalState {
 					lastKind: event.kind,
 					lastEventTime: event.eventTime,
 					lastSequence: event.sequence,
-					hasUnverifiedChange:
-						changed && event.payload.isError !== true && (!lastValidationEvent || lastValidationIndex < index),
-					lastValidationEventId: lastValidationIndex > index ? lastValidationEvent?.eventId : undefined,
+					hasUnverifiedChange: changed ? event.payload.isError !== true : (previous?.hasUnverifiedChange ?? false),
+					lastValidationEventId: previous?.lastValidationEventId,
 				});
 				activeFileIndexes.set(path, index);
 			}
 		}
 
-		if (isSuccessfulValidationCommand(event)) {
-			lastValidationEvent = event;
-			lastValidationIndex = index;
+		const validation = inferValidationCommand(event, [...activeFiles.keys()]);
+		if (validation) {
 			for (const file of activeFiles.values()) {
-				if ((activeFileIndexes.get(file.path) ?? -1) < index) {
+				if ((activeFileIndexes.get(file.path) ?? -1) < index && validation.targetPaths.includes(file.path)) {
 					file.hasUnverifiedChange = false;
 					file.lastValidationEventId = event.eventId;
 				}
@@ -173,19 +171,6 @@ function isArtifactEvent(event: AkashaEvent): boolean {
 function artifactPath(event: AkashaEvent): string | undefined {
 	if (typeof event.payload.path === "string") return event.payload.path;
 	return event.objectId;
-}
-
-function isSuccessfulValidationCommand(event: AkashaEvent): boolean {
-	if (event.kind !== "command.executed" || event.payload.isError === true) return false;
-	const command = typeof event.payload.command === "string" ? event.payload.command.toLowerCase() : "";
-	return (
-		command.includes("test") ||
-		command.includes("vitest") ||
-		command.includes("jest") ||
-		command.includes("tsc") ||
-		command.includes("build") ||
-		command.includes("lint")
-	);
 }
 
 function payloadText(event: AkashaEvent): string {

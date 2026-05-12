@@ -412,6 +412,59 @@ agent proposes
 - `akasha` 不改变 `pi` 原有入口行为。
 - 用户能从 README/docs 直接完成初始化、启动和检查。
 
+## M15：Temporal Task Graph
+
+**目标：** 把 M12 的 `goals/tasks/decisions/risks` 列表投影升级为可解释的任务图，让 Akasha 不只知道“有哪些状态”，还知道它们如何互相约束。
+
+**核心能力：**
+
+- Task Graph Nodes：目标、任务、决策、风险、artifact、callback 都成为 typed graph node。
+- Task Graph Edges：用 `belongs_to`、`blocks`、`tracks`、`validates`、`references` 表达任务归属、风险阻塞、callback 追踪、验证证据和 artifact 引用。
+- Backward Compatible Model：保留原有 `AkashaTaskModel.goals/tasks/decisions/risks`，新增 `callbacks` 与 `graph` 字段。
+- Slash Command Inspection：`/akasha task-model` 输出 graph node/edge 计数和关键边，方便审计当前工作状态。
+
+**退出标准：**
+
+- promise/open loop 能作为 task node 进入 graph。
+- artifact risk 能通过 `blocks` edge 指向对应 artifact 或 task。
+- callback 能通过 `tracks` edge 指向被追踪的 task/artifact。
+- 验证命令能通过 `validates` edge 连接 artifact。
+
+## M16：Governance Propagation
+
+**目标：** 让用户治理不只作用于单个事件，也能传播到由该事件派生出的长期事实，避免 suppressed/redacted 源继续通过 preference、crystal、summary 或 brief 泄漏。
+
+**核心能力：**
+
+- Suppression Closure：`memory.suppressed` 会隐藏目标事件及其 causal descendants、`supportingEventIds`、`sourceEventIds`、`evidenceEventIds` 等派生事实。
+- Redaction-derived Filtering：redaction 保留并脱敏原始事件，但从投影中移除依赖该事件的派生事实。
+- Governed Projection：新增统一治理投影，供 user timeline、project timeline、action gate、temporal brief 复用。
+- Append-only Trust：治理仍然通过事件表达，不物理改写历史。
+
+**退出标准：**
+
+- suppress 原始用户消息后，由它推导出的 preference/crystal 不再进入 user timeline 或 hidden brief。
+- redact 原始 payload 后，原始事件保留但派生事实不再泄漏 redacted 内容。
+- action gate 和 project timeline 使用治理后的事件投影。
+
+## M17：Artifact Verification Integrity
+
+**目标：** 修正“任意成功验证命令验证所有修改文件”的过宽逻辑，让文件验证变成有 scope 和 confidence 的时间事实。
+
+**核心能力：**
+
+- Validation Inference：新增共享 validation 推断，识别 validation command、scope、targetPaths 和 confidence。
+- Scoped Verification：只有命令显式引用 artifact path、basename 或 stem 时，才把该 artifact 标记为 `modified_verified`。
+- Broad Validation Observed：项目级 `npm test`、`tsc`、`build`、`lint` 会被记录为 observed evidence，但不会自动验证所有修改文件。
+- Loop Integrity：artifact open loop 只有在 scoped validation 覆盖该 artifact 后才会 resolved。
+
+**退出标准：**
+
+- 修改多个文件后运行 broad `npm test` 不会把所有文件标记 verified。
+- `npm test -- app` 可以验证 `src/app.ts` 这类明确命中的 artifact。
+- 读取文件不会清除已有 unverified 修改状态。
+- Tool gate 和 task risk 基于 scoped artifact state 工作。
+
 ## 阶段依赖图
 
 ```text
@@ -432,6 +485,9 @@ M0 Event Ontology
 	                          -> M12 Policy Kernel / Daemon Queue / Task Model
 	                            -> M13 Temporal Kernel / Auditable Runtime
 	                              -> M14 Product Entry / Dogfood Shell
+	                                -> M15 Temporal Task Graph
+	                                  -> M16 Governance Propagation
+	                                    -> M17 Artifact Verification Integrity
 ```
 
 ## 每阶段通用质量门槛
@@ -446,39 +502,33 @@ M0 Event Ontology
 
 ## 当前优先级
 
-当前已进入 **M14 Product Entry / Dogfood Shell** 切片。原因是：M13 已经把时间内核风险压住，下一步要让 Akasha 成为用户每天可以启动、初始化和检查的明确入口。
+当前已进入 **M18 Explicit Time Syscalls** 切片。原因是：M15-M17 已经把当前状态图、治理传播和 artifact 验证完整性补齐，下一步要减少对自然语言正则的依赖，让承诺和预测成为显式时间系统调用。
 
 推荐下一轮开发标题：
 
 ```text
-Akasha M14: Product Entry and Dogfood Shell
+Akasha M18: Explicit Time Syscalls
 ```
 
 建议第一批文件边界：
 
-- `packages/coding-agent/src/akasha-cli.ts`
-- `packages/coding-agent/src/akasha-entry-cli.ts`
-- `packages/coding-agent/src/core/akasha/preset.ts`
-- `packages/coding-agent/src/core/settings-manager.ts`
-- `packages/coding-agent/src/core/akasha/commands.ts`
-- `packages/coding-agent/package.json`
-- `packages/coding-agent/docs/akasha.md`
-- `packages/coding-agent/docs/settings.md`
-- `packages/coding-agent/README.md`
-- `packages/coding-agent/test/akasha-entry-cli.test.ts`
-- `packages/coding-agent/test/settings-manager.test.ts`
+- `packages/coding-agent/src/core/akasha/accountability-extractor.ts`
+- `packages/coding-agent/src/core/akasha/time-syscalls.ts`
+- `packages/coding-agent/src/core/akasha/collector-extension.ts`
+- `packages/coding-agent/src/core/akasha/types.ts`
+- `packages/coding-agent/src/core/akasha/schema.ts`
+- `packages/coding-agent/test/akasha-accountability.test.ts`
+- `packages/coding-agent/test/akasha-time-syscalls.test.ts`
 
 建议第一批命令：
 
-- `akasha init [--global]`
-- `akasha enable [--global]`
-- `akasha status`
-- `/akasha init [global]`
-- `/akasha enable [global]`
+- internal `akasha_create_commitment`
+- internal `akasha_resolve_commitment`
+- internal `akasha_create_prediction`
+- internal `akasha_check_prediction`
 
 建议第一批验收：
 
-- `akasha init` 能生成 Akasha preset。
-- `akasha status` 能看到 enabled/action gate/tool gate/maintenance 状态。
-- `npm --prefix packages/coding-agent run build` 后 `dist/akasha-cli.js` 可执行。
-- `pi` 原入口、help 和现有 session 流程不回归。
+- Agent 产生未来责任时能写入显式 promise/prediction 事件，而不只靠正则抽取。
+- 显式 promise/prediction 带 source、confidence、due/checkAfter 和 resolution criteria。
+- heuristic 抽取仍可作为 fallback，但不会和显式 syscall 重复。

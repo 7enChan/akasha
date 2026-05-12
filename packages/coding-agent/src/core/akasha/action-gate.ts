@@ -1,3 +1,4 @@
+import { projectAkashaGovernedEvents } from "./governance-projection.js";
 import { buildKarmaLedger } from "./karma-ledger.js";
 import { buildOpenLoopLedger } from "./open-loops.js";
 import type { AkashaProjectTimeline } from "./project-timeline.js";
@@ -21,11 +22,12 @@ export interface AkashaActionGateContext {
 
 export function buildAkashaActionGateContext(options: AkashaActionGateOptions): AkashaActionGateContext | undefined {
 	const maxItems = Math.max(1, Math.floor(options.maxItems ?? 8));
-	const projectState = options.projectTimeline?.state ?? buildProjectState(options.sessionEvents);
-	const loops = buildOpenLoopLedger(options.projectTimeline?.events ?? options.sessionEvents).filter(
-		(loop) => loop.state !== "resolved",
-	);
-	const karma = buildKarmaLedger(options.userTimeline?.events ?? options.sessionEvents);
+	const sessionEvents = projectAkashaGovernedEvents(options.sessionEvents).events;
+	const projectEvents = projectAkashaGovernedEvents(options.projectTimeline?.events ?? sessionEvents).events;
+	const userEvents = projectAkashaGovernedEvents(options.userTimeline?.events ?? sessionEvents).events;
+	const projectState = buildProjectState(projectEvents);
+	const loops = buildOpenLoopLedger(projectEvents).filter((loop) => loop.state !== "resolved");
+	const karma = buildKarmaLedger(userEvents);
 	const preferences = options.userTimeline?.preferences.slice(0, maxItems) ?? [];
 	const collaborationHints = options.userTimeline?.collaborationHints.slice(0, maxItems) ?? [];
 	const corrections = options.userTimeline?.corrections.slice(0, maxItems) ?? [];

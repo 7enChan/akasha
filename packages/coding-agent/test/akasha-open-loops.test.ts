@@ -42,6 +42,32 @@ describe("Akasha open loops", () => {
 		expect(drafts[0]?.payload?.resolverEventId).toBe("evt-3");
 	});
 
+	it("does not resolve an artifact loop after broad validation without artifact scope", () => {
+		const opened = event(
+			2,
+			"loop.opened",
+			{
+				loopKey: "evt-1:artifact_changed_without_validation",
+				reason: "artifact_changed_without_validation",
+				rootEventId: "evt-1",
+				summary: "src/app.ts changed without validation",
+				state: "open",
+			},
+			{ parentEventIds: ["evt-1"], objectId: "src/app.ts" },
+		);
+		const drafts = deriveOpenLoopEvents(
+			[
+				event(1, "artifact.patched", { path: "src/app.ts", isError: false }, { objectId: "src/app.ts" }),
+				opened,
+				event(3, "command.executed", { command: "npm test", isError: false }),
+			],
+			"session-1",
+			"session:session-1",
+		);
+
+		expect(drafts.map((draft) => draft.kind)).toEqual([]);
+	});
+
 	it("resolves a failed tool loop after a later same-tool success", () => {
 		const drafts = deriveOpenLoopEvents(
 			[

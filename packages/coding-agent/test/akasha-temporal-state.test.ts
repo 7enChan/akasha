@@ -40,6 +40,19 @@ describe("buildTemporalState", () => {
 		expect(state.activeFiles[0]?.hasUnverifiedChange).toBe(false);
 		expect(state.openLoopCandidates.map((loop) => loop.reason)).not.toContain("artifact_changed_without_validation");
 	});
+
+	it("keeps unverified state after reads and broad validation commands", () => {
+		const events = [
+			event(1, "artifact.patched", { path: "src/app.ts", isError: false }, { objectId: "src/app.ts" }),
+			event(2, "artifact.read", { path: "src/app.ts", isError: false }, { objectId: "src/app.ts" }),
+			event(3, "command.executed", { command: "npm test", isError: false }, { objectId: "npm test" }),
+		];
+
+		const state = buildTemporalState(events);
+
+		expect(state.activeFiles[0]?.hasUnverifiedChange).toBe(true);
+		expect(state.openLoopCandidates.map((loop) => loop.reason)).toContain("artifact_changed_without_validation");
+	});
 });
 
 function event(

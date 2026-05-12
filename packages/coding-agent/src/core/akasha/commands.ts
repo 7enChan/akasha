@@ -554,7 +554,7 @@ function formatDaemonQueue(queue: AkashaDaemonQueueItem[]): string {
 
 function formatTaskModel(model: AkashaTaskModel): string {
 	const lines = [
-		`Task model: ${model.goals.length} goals, ${model.tasks.length} tasks, ${model.decisions.length} decisions, ${model.risks.length} risks`,
+		`Task model: ${model.goals.length} goals, ${model.tasks.length} tasks, ${model.decisions.length} decisions, ${model.risks.length} risks, ${model.graph.nodes.length} graph nodes, ${model.graph.edges.length} graph edges`,
 		"",
 		"Goals:",
 	];
@@ -586,12 +586,33 @@ function formatTaskModel(model: AkashaTaskModel): string {
 		}
 	}
 
+	lines.push("", "Callbacks:");
+	if (model.callbacks.length === 0) {
+		lines.push("- (none)");
+	} else {
+		for (const callback of model.callbacks.slice(0, 8)) {
+			const due = callback.dueTime ? ` due ${callback.dueTime}` : "";
+			const target = callback.targetEventId ? ` target=${callback.targetEventId}` : "";
+			lines.push(`- ${callback.status}${due}${target}: ${callback.text}`);
+		}
+	}
+
 	lines.push("", "Decisions:");
 	if (model.decisions.length === 0) {
 		lines.push("- (none)");
 	} else {
 		for (const decision of model.decisions.slice(0, 8)) {
 			lines.push(`- ${decision.kind}: ${decision.text}`);
+		}
+	}
+
+	lines.push("", "Graph edges:");
+	if (model.graph.edges.length === 0) {
+		lines.push("- (none)");
+	} else {
+		for (const edge of model.graph.edges.slice(0, 12)) {
+			const reason = edge.reason ? ` (${edge.reason})` : "";
+			lines.push(`- ${edge.type}: ${edge.from} -> ${edge.to}${reason}`);
 		}
 	}
 

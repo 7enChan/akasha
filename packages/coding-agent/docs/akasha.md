@@ -63,6 +63,12 @@ Inside an Akasha-enabled session, use:
 /akasha callback-cancel <callbackId> [reason]
 ```
 
+`/akasha task-model` includes both the legacy typed lists and the M15 graph projection. The graph connects goals, tasks, decisions, risks, artifacts, and callbacks with edges such as `belongs_to`, `blocks`, `tracks`, and `validates`.
+
+Akasha projections apply governance before injecting hidden context. Suppressed events hide their causal descendants and supported derived facts; redacted source events remain visible only in redacted form, while derived facts sourced from them are omitted from projections.
+
+Artifact validation is scoped. Broad commands such as `npm test` are recorded as validation evidence, but an artifact is marked verified only when the command explicitly references that file path, basename, or stem.
+
 ## Storage
 
 By default, Akasha writes event logs under:

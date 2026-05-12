@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildTemporalBrief } from "../src/core/akasha/brief.js";
 import { JsonlAkashaStore } from "../src/core/akasha/jsonl-store.js";
+import { createMemoryGovernanceEvent } from "../src/core/akasha/memory-governance.js";
 import { createRedactionEvent } from "../src/core/akasha/redaction.js";
 import { sanitizeAkashaEventDraft, scanAkashaSecrets } from "../src/core/akasha/sensitive-data.js";
 
@@ -67,5 +68,41 @@ describe("Akasha sensitive data handling", () => {
 
 		expect(brief?.text).toContain("[redacted]");
 		expect(brief?.text).not.toContain("secret text");
+	});
+
+	it("omits suppressed events from temporal briefs", () => {
+		const store = new JsonlAkashaStore(join(tempDir, "events.jsonl"), { redactSecrets: false });
+		const target = store.append({
+			kind: "message.user.submitted",
+			sessionId: "session-1",
+			streamId: "session:session-1",
+			eventTime: "2026-05-11T00:00:00.000Z",
+			actor: "user",
+			payload: { text: "temporary preference should disappear" },
+		});
+		store.append({
+			kind: "preference.inferred",
+			sessionId: "session-1",
+			streamId: "session:session-1",
+			eventTime: "2026-05-11T00:01:00.000Z",
+			actor: "system",
+			parentEventIds: [target.eventId],
+			payload: { statement: "temporary derived preference", supportingEventIds: [target.eventId] },
+		});
+		store.append(createMemoryGovernanceEvent(target, "suppress", "temporary"));
+		store.append({
+			kind: "message.user.submitted",
+			sessionId: "session-1",
+			streamId: "session:session-1",
+			eventTime: "2026-05-11T00:02:00.000Z",
+			actor: "user",
+			payload: { text: "stable intent remains visible" },
+		});
+
+		const brief = buildTemporalBrief(store, { maxEvents: 8 });
+
+		expect(brief?.text).toContain("stable intent remains visible");
+		expect(brief?.text).not.toContain("temporary preference should disappear");
+		expect(brief?.text).not.toContain("temporary derived preference");
 	});
 });

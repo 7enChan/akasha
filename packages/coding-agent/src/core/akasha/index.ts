@@ -45,6 +45,8 @@ export type {
 export { InMemoryAkashaEmbeddingStore, JsonlAkashaEmbeddingStore } from "./embedding-store.js";
 export type { AkashaExportFormat, AkashaExportOptions } from "./event-export.js";
 export { exportAkashaEvents, importAkashaEvents } from "./event-export.js";
+export type { AkashaGovernanceProjection } from "./governance-projection.js";
+export { projectAkashaGovernedEvents } from "./governance-projection.js";
 export type { AkashaHeartbeatController, AkashaHeartbeatOptions } from "./heartbeat.js";
 export { createAkashaHeartbeat } from "./heartbeat.js";
 export { JsonlAkashaStore } from "./jsonl-store.js";
@@ -74,7 +76,13 @@ export {
 	truncateText,
 } from "./mapper.js";
 export type { AkashaMemoryGovernanceAction, AkashaMemoryGovernanceState } from "./memory-governance.js";
-export { buildMemoryGovernance, createMemoryGovernanceEvent, isMemoryGovernanceEvent } from "./memory-governance.js";
+export {
+	buildMemoryGovernance,
+	buildSourceClosure,
+	createMemoryGovernanceEvent,
+	filterSuppressedEvents,
+	isMemoryGovernanceEvent,
+} from "./memory-governance.js";
 export type { AkashaOpenLoopRecord } from "./open-loops.js";
 export { buildOpenLoopLedger, deriveOpenLoopEvents } from "./open-loops.js";
 export { compareAkashaEvents, orderAkashaEvents } from "./ordering.js";
@@ -132,9 +140,15 @@ export {
 	resolveAkashaEventsDir,
 } from "./session-index.js";
 export type {
+	AkashaCallbackState,
 	AkashaDecisionState,
 	AkashaGoalState,
 	AkashaRiskState,
+	AkashaTaskGraph,
+	AkashaTaskGraphEdge,
+	AkashaTaskGraphEdgeType,
+	AkashaTaskGraphNode,
+	AkashaTaskGraphNodeType,
 	AkashaTaskModel,
 	AkashaTaskState,
 } from "./task-model.js";
@@ -171,6 +185,8 @@ export type {
 } from "./types.js";
 export type { AkashaUserFact, AkashaUserTimeline, AkashaUserTimelineOptions } from "./user-timeline.js";
 export { buildAkashaUserTimeline, buildAkashaUserTimelineFromEvents, summarizeUserTimeline } from "./user-timeline.js";
+export type { AkashaValidationInference, AkashaValidationScope } from "./validation.js";
+export { inferValidationCommand, looksLikeValidationCommand, validationCoversArtifact } from "./validation.js";
 export type {
 	AkashaProjectBlocker,
 	AkashaProjectDecision,

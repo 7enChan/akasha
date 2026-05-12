@@ -1,5 +1,7 @@
 import { orderAkashaEvents } from "./ordering.js";
 import type { AkashaEvent } from "./types.js";
+import type { AkashaValidationScope } from "./validation.js";
+import { inferValidationCommand } from "./validation.js";
 
 export type AkashaArtifactStatus = "observed" | "modified_unverified" | "modified_verified" | "failed";
 
@@ -12,6 +14,9 @@ export interface AkashaArtifactState {
 	lastEventTime: string;
 	lastSequence: number;
 	lastValidationEventId?: string;
+	lastValidationObservedEventId?: string;
+	lastValidationScope?: AkashaValidationScope;
+	lastValidationConfidence?: number;
 	lastFailureEventId?: string;
 	readCount: number;
 	writeCount: number;
@@ -48,11 +53,17 @@ export function buildArtifactStates(events: AkashaEvent[]): AkashaArtifactState[
 			continue;
 		}
 
-		if (isSuccessfulValidationCommand(event)) {
+		const validation = inferValidationCommand(event, [...states.keys()]);
+		if (validation) {
 			for (const state of states.values()) {
 				if ((lastIndexes.get(state.path) ?? -1) < index && state.status === "modified_unverified") {
-					state.status = "modified_verified";
-					state.lastValidationEventId = event.eventId;
+					state.lastValidationObservedEventId = event.eventId;
+					state.lastValidationScope = validation.scope;
+					state.lastValidationConfidence = validation.confidence;
+					if (validation.targetPaths.includes(state.path)) {
+						state.status = "modified_verified";
+						state.lastValidationEventId = event.eventId;
+					}
 				}
 			}
 		}
@@ -88,17 +99,4 @@ function isArtifactEvent(event: AkashaEvent): boolean {
 function artifactPath(event: AkashaEvent): string | undefined {
 	if (typeof event.payload.path === "string") return event.payload.path;
 	return event.objectId;
-}
-
-function isSuccessfulValidationCommand(event: AkashaEvent): boolean {
-	if (event.kind !== "command.executed" || event.payload.isError === true) return false;
-	const command = typeof event.payload.command === "string" ? event.payload.command.toLowerCase() : "";
-	return (
-		command.includes("test") ||
-		command.includes("vitest") ||
-		command.includes("jest") ||
-		command.includes("tsc") ||
-		command.includes("build") ||
-		command.includes("lint")
-	);
 }

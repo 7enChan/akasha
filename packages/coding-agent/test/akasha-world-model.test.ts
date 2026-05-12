@@ -18,8 +18,25 @@ describe("Akasha world model", () => {
 				readCount: 1,
 				patchCount: 1,
 				lastValidationEventId: "evt-3",
+				lastValidationScope: "file",
 			},
 		]);
+	});
+
+	it("does not mark every modified artifact verified after broad project validation", () => {
+		const states = buildArtifactStates([
+			event(1, "artifact.patched", { path: "src/app.ts", isError: false }, { objectId: "src/app.ts" }),
+			event(2, "artifact.patched", { path: "src/settings.ts", isError: false }, { objectId: "src/settings.ts" }),
+			event(3, "command.executed", { command: "npm test", isError: false }),
+		]);
+
+		expect(states.map((state) => [state.path, state.status, state.lastValidationScope])).toEqual(
+			expect.arrayContaining([
+				["src/app.ts", "modified_unverified", "project"],
+				["src/settings.ts", "modified_unverified", "project"],
+			]),
+		);
+		expect(states.every((state) => state.lastValidationObservedEventId === "evt-3")).toBe(true);
 	});
 
 	it("summarizes current goal, active files, blockers, and decisions", () => {

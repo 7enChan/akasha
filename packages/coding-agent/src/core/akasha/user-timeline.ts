@@ -1,8 +1,8 @@
+import { projectAkashaGovernedEvents } from "./governance-projection.js";
 import { JsonlAkashaStore } from "./jsonl-store.js";
 import { buildKarmaLedger } from "./karma-ledger.js";
 import { buildMemoryGovernance } from "./memory-governance.js";
 import { orderAkashaEvents } from "./ordering.js";
-import { applyAkashaRedactions } from "./redaction.js";
 import { buildAkashaSessionIndex } from "./session-index.js";
 import type { AkashaEvent } from "./types.js";
 
@@ -46,9 +46,9 @@ export function buildAkashaUserTimeline(options: AkashaUserTimelineOptions): Aka
 }
 
 export function buildAkashaUserTimelineFromEvents(events: AkashaEvent[]): AkashaUserTimeline {
-	const redacted = applyAkashaRedactions(orderAkashaEvents(events));
-	const governance = buildMemoryGovernance(redacted);
-	const ordered = redacted.filter((event) => !governance.suppressedEventIds.has(event.eventId));
+	const rawOrdered = orderAkashaEvents(events);
+	const governance = buildMemoryGovernance(rawOrdered);
+	const ordered = projectAkashaGovernedEvents(rawOrdered).events;
 	const preferences: AkashaUserFact[] = [];
 	const longTermGoals: AkashaUserFact[] = [];
 	const collaborationHints: AkashaUserFact[] = [];
