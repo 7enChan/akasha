@@ -7,8 +7,8 @@
 
 import { resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
-import { ProcessTerminal, setKeybindings, TUI } from "@earendil-works/pi-tui";
+import { type ImageContent, modelsAreEqual } from "@earendil-works/akasha-ai";
+import { ProcessTerminal, setKeybindings, TUI } from "@earendil-works/akasha-tui";
 import chalk from "chalk";
 import { handleAkashaEntrypointCommand } from "./akasha-entry-cli.js";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.js";
@@ -423,15 +423,18 @@ export interface MainOptions {
 
 export async function main(args: string[], options?: MainOptions) {
 	resetTimings();
-	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.PI_OFFLINE);
+	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.AKASHA_OFFLINE);
 	if (offlineMode) {
-		process.env.PI_OFFLINE = "1";
-		process.env.PI_SKIP_VERSION_CHECK = "1";
+		process.env.AKASHA_OFFLINE = "1";
+		process.env.AKASHA_SKIP_VERSION_CHECK = "1";
 	}
 
 	if (await handleAkashaEntrypointCommand(args, process.cwd())) {
 		return;
 	}
+
+	const cwd = process.cwd();
+	const agentDir = getAgentDir();
 
 	if (await handlePackageCommand(args)) {
 		return;
@@ -488,8 +491,6 @@ export async function main(args: string[], options?: MainOptions) {
 	const { migratedAuthProviders: migratedProviders, deprecationWarnings } = runMigrations(process.cwd());
 	time("runMigrations");
 
-	const cwd = process.cwd();
-	const agentDir = getAgentDir();
 	const startupSettingsManager = SettingsManager.create(cwd, agentDir);
 	reportDiagnostics(collectSettingsDiagnostics(startupSettingsManager, "startup session lookup"));
 
@@ -498,9 +499,7 @@ export async function main(args: string[], options?: MainOptions) {
 	// settings, resources, provider registrations, and models must be resolved only after
 	// the target session cwd is known. The startup-cwd settings manager is used only for
 	// sessionDir lookup during session selection.
-	const envSessionDir =
-		process.env[ENV_SESSION_DIR] ??
-		(process.env.PI_AKASHA_ENTRYPOINT === "1" ? process.env.PI_CODING_AGENT_SESSION_DIR : undefined);
+	const envSessionDir = process.env[ENV_SESSION_DIR];
 	const sessionDir =
 		parsed.sessionDir ??
 		(envSessionDir ? expandTildePath(envSessionDir) : undefined) ??
@@ -671,9 +670,9 @@ export async function main(args: string[], options?: MainOptions) {
 		process.exit(1);
 	}
 
-	const startupBenchmark = isTruthyEnvFlag(process.env.PI_STARTUP_BENCHMARK);
+	const startupBenchmark = isTruthyEnvFlag(process.env.AKASHA_STARTUP_BENCHMARK);
 	if (startupBenchmark && appMode !== "interactive") {
-		console.error(chalk.red("Error: PI_STARTUP_BENCHMARK only supports interactive mode"));
+		console.error(chalk.red("Error: AKASHA_STARTUP_BENCHMARK only supports interactive mode"));
 		process.exit(1);
 	}
 

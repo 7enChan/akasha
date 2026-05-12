@@ -14,7 +14,7 @@ afterEach(() => {
 });
 
 function createTempDir(): string {
-	tempDir = mkdtempSync(join(tmpdir(), "pi-paths-"));
+	tempDir = mkdtempSync(join(tmpdir(), "akasha-paths-"));
 	return tempDir;
 }
 
@@ -63,12 +63,12 @@ describe("canonicalizePath", () => {
 
 describe("getCwdRelativePath", () => {
 	it("keeps cwd-relative names that start with dots", () => {
-		const cwd = join(tmpdir(), "pi-paths-cwd");
+		const cwd = join(tmpdir(), "akasha-paths-cwd");
 		expect(getCwdRelativePath(join(cwd, "..config", "AGENTS.md"), cwd)).toBe(join("..config", "AGENTS.md"));
 	});
 
 	it("rejects parent-directory traversals", () => {
-		const cwd = join(tmpdir(), "pi-paths-cwd");
+		const cwd = join(tmpdir(), "akasha-paths-cwd");
 		expect(getCwdRelativePath(join(cwd, "..", "AGENTS.md"), cwd)).toBeUndefined();
 	});
 });

@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { getModel } from "@earendil-works/pi-ai";
+import { getModel } from "@earendil-works/akasha-ai";
 import { InMemorySessionStorage } from "../../src/harness/session/storage/memory.js";
 import {
 	AgentHarness,
@@ -22,15 +22,15 @@ const source = (type: Source["type"], dir: string) => ({ path: dir, source: { ty
 const { skills: sourcedSkills } = await loadSourcedSkills<Source, SourcedSkill>(
 	env,
 	[
-		source("project", join(env.cwd, ".pi/skills")),
-		source("user", join(homedir(), ".pi/agent/skills")),
-		source("path", join(env.cwd, "../../../pi-skills")),
+		source("project", join(env.cwd, ".akasha/skills")),
+		source("user", join(homedir(), ".akasha/agent/skills")),
+		source("path", join(env.cwd, "../../../akasha-skills")),
 	],
 	(skill, source) => ({ ...skill, source }),
 );
 const { promptTemplates: sourcedPromptTemplates } = await loadSourcedPromptTemplates<Source, SourcedPromptTemplate>(
 	env,
-	[source("project", join(env.cwd, ".pi/prompts")), source("user", join(homedir(), ".pi/agent/prompts"))],
+	[source("project", join(env.cwd, ".akasha/prompts")), source("user", join(homedir(), ".akasha/agent/prompts"))],
 	(promptTemplate, source) => ({ ...promptTemplate, source }),
 );
 

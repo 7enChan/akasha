@@ -6,7 +6,7 @@
 
 **核心判断：** Akasha 不是更大的记忆库，而是一个以 append-only 时间事件为事实源的 Agent runtime。长期记忆、世界模型、承诺账本、反思、自我校准和跨会话连续性，都是事件流和因果链的投影。
 
-**首个落点：** `pi-coding-agent` 的会话与工具链记忆。
+**首个落点：** `akasha-coding-agent` 的会话与工具链记忆。
 
 ---
 
@@ -25,7 +25,7 @@ Akasha 的终极状态是一个具备时间连续性的 Agent：
 
 - **先事实，后智能。** 先保证事件流完整、可回放、可解释，再加入 embeddings、反思和自动学习。
 - **先旁路，后闭环。** 早期 Akasha 不改变现有 session transcript 和 Agent loop；只有通过评估后才允许影响行动。
-- **先 coding-agent，后通用 runtime。** 首个稳定落点是 `pi-coding-agent` 的会话与工具链记忆，再抽象成可插拔 SDK。
+- **先 coding-agent，后通用 runtime。** 首个稳定落点是 `akasha-coding-agent` 的会话与工具链记忆，再抽象成可插拔 SDK。
 - **先因果，后语义。** 召回排序必须优先尊重时间顺序、因果距离、未闭环责任和失败经验，再引入语义相似度。
 - **先本地，后同步。** 长期记忆默认 local-first、显式开启，跨设备/团队同步放到后期。
 - **所有阶段必须有评估。** 没有 temporal recall eval、causal chain eval 和 regression fixtures 的能力不进入下一阶段。
@@ -56,7 +56,7 @@ Akasha 的终极状态是一个具备时间连续性的 Agent：
 
 ## M1：Local-first Time Bus for Coding Agent
 
-**目标：** 为 `pi-coding-agent` 建立可选的本地时间旁路层，让会话、工具和文件生命周期进入 append-only 时间流。
+**目标：** 为 `akasha-coding-agent` 建立可选的本地时间旁路层，让会话、工具和文件生命周期进入 append-only 时间流。
 
 **当前基线：**
 
@@ -278,13 +278,13 @@ agent proposes
 
 ## M8：Multi-runtime SDK 与 Time OS
 
-**目标：** 把 Akasha 从 `pi-coding-agent` 内置能力抽象成可插拔时间层，接入更多 Agent runtime。
+**目标：** 把 Akasha 从 `akasha-coding-agent` 内置能力抽象成可插拔时间层，接入更多 Agent runtime。
 
 **交付物：**
 
 - Core SDK：event schema、store interface、projection API、brief renderer、command/debug API。
 - Adapter SDK：runtime hook 到 Akasha event 的映射模板。
-- Runtime adapters：`pi-coding-agent` 作为 reference adapter；后续接 LangGraph/OpenClaw/AutoGPT 类工作流。
+- Runtime adapters：`akasha-coding-agent` 作为 reference adapter；后续接 LangGraph/OpenClaw/AutoGPT 类工作流。
 - Compatibility tests：同一 fixture 在不同 runtime 下生成等价事件链。
 
 **退出标准：**
@@ -395,7 +395,7 @@ agent proposes
 
 ## M14：Akasha Product Entry 与 Dogfood Shell
 
-**目标：** 让 Akasha 不只是隐藏在 Pi runtime 里的能力，而是有可日常启动、可初始化、可检查的产品入口，同时保留底层 runtime 和配置兼容性。
+**目标：** 让 Akasha 不只是隐藏在 Akasha runtime 里的能力，而是有可日常启动、可初始化、可检查的产品入口，同时保留底层 runtime 和配置兼容性。
 
 **核心能力：**
 
@@ -407,9 +407,9 @@ agent proposes
 
 **退出标准：**
 
-- `akasha init` 默认写入当前项目 `.pi/settings.json`，`--global` 写入全局 settings。
+- `akasha init` 默认写入当前项目 `.akasha/settings.json`，`--global` 写入全局 settings。
 - `akasha status` 能显示 resolved Akasha 状态和 settings/event log 路径。
-- `akasha` 不改变 `pi` 原有入口行为。
+- `akasha` 不改变 `akasha` 原有入口行为。
 - 用户能从 README/docs 直接完成初始化、启动和检查。
 
 ## M15：Temporal Task Graph
@@ -693,4 +693,4 @@ Akasha M27: Agent Resume Inbox and Strict Temporal Protocol
 - pending callback inbox 能在下次 `akasha` 启动时进入行动前上下文或启动提示。
 - strict syscall audit mode 能要求 repair，而不是只做 soft fallback。
 - Universal Policy Surface 增加实际 OS 级规则：export confirmation、reflection governed-only、embedding no suppressed source。
-- root README 与产品叙事进一步从 Pi 切到 Akasha。
+- root README 与产品叙事进一步从 Akasha 切到 Akasha。

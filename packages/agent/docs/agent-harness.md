@@ -208,7 +208,7 @@ Preferred future structure:
 - `agent-harness-tools.test.ts`: tool registry getters, active-tool semantics, and update events.
 - `agent-harness-lifecycle.test.ts`: phase/save-point/settled/reentrancy behavior.
 
-Use the `pi-ai` faux provider (`registerFauxProvider`, `fauxAssistantMessage`) for deterministic harness/provider tests. Faux response factories can inspect `StreamOptions`, invoke `options.onPayload`, and return scripted assistant messages without real provider APIs or network access.
+Use the `akasha-ai` faux provider (`registerFauxProvider`, `fauxAssistantMessage`) for deterministic harness/provider tests. Faux response factories can inspect `StreamOptions`, invoke `options.onPayload`, and return scripted assistant messages without real provider APIs or network access.
 
 ## Implementation todo
 
@@ -249,8 +249,8 @@ Implemented so far:
 Implemented provider hook behavior:
 
 - `before_provider_request` runs before `streamSimple()` and can patch curated stream options for the current request only.
-- `before_provider_payload` maps to the underlying `pi-ai` `onPayload` and can inspect/replace provider-specific payloads.
-- `after_provider_response` maps to the underlying `pi-ai` `onResponse` and observes response status/headers before body consumption.
+- `before_provider_payload` maps to the underlying `akasha-ai` `onPayload` and can inspect/replace provider-specific payloads.
+- `after_provider_response` maps to the underlying `akasha-ai` `onResponse` and observes response status/headers before body consumption.
 - `AgentHarnessStreamOptionsPatch` has explicit deletion semantics:
   - top-level fields present with `undefined` clear that option.
   - `headers` and `metadata` patches may set individual keys to `undefined` to delete them.
@@ -263,7 +263,7 @@ Implemented provider hook behavior:
 
 Implemented validation:
 
-- `packages/agent/test/harness/agent-harness-stream.test.ts` uses the `pi-ai` faux provider.
+- `packages/agent/test/harness/agent-harness-stream.test.ts` uses the `akasha-ai` faux provider.
 - Tests cover stream option forwarding, auth header merge, request hook patching, request hook deletion semantics, request hook chaining, payload hook chaining, and busy/save-point snapshot behavior.
 
 ### 3. Design per-`AgentHarness` model registry

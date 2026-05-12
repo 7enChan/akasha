@@ -15,7 +15,7 @@ describe("SettingsManager", () => {
 			rmSync(testDir, { recursive: true });
 		}
 		mkdirSync(agentDir, { recursive: true });
-		mkdirSync(join(projectDir, ".pi"), { recursive: true });
+		mkdirSync(join(projectDir, ".akasha"), { recursive: true });
 	});
 
 	afterEach(() => {
@@ -75,11 +75,11 @@ describe("SettingsManager", () => {
 					enabled: true,
 					injectTemporalBrief: true,
 					maxBriefEvents: 4.8,
-					eventLogDir: ".pi/akasha-events",
+					eventLogDir: ".akasha/akasha-events",
 					embedding: {
 						enabled: true,
 						provider: "hash",
-						indexDir: ".pi/akasha-embeddings",
+						indexDir: ".akasha/akasha-embeddings",
 						dimensions: 31.8,
 					},
 					actionGate: {
@@ -113,14 +113,14 @@ describe("SettingsManager", () => {
 				enabled: true,
 				injectTemporalBrief: true,
 				maxBriefEvents: 4,
-				eventLogDir: ".pi/akasha-events",
+				eventLogDir: ".akasha/akasha-events",
 				embedding: {
 					enabled: true,
 					provider: "hash",
 					model: "text-embedding-3-small",
 					baseUrl: "https://api.openai.com/v1/embeddings",
 					apiKeyEnv: "OPENAI_API_KEY",
-					indexDir: ".pi/akasha-embeddings",
+					indexDir: ".akasha/akasha-embeddings",
 					dimensions: 31,
 				},
 				actionGate: {
@@ -153,7 +153,7 @@ describe("SettingsManager", () => {
 		it("should apply the Akasha dogfood preset", async () => {
 			const manager = SettingsManager.inMemory({
 				akasha: {
-					eventLogDir: ".pi/custom-akasha-events",
+					eventLogDir: ".akasha/custom-akasha-events",
 				},
 			});
 
@@ -163,7 +163,7 @@ describe("SettingsManager", () => {
 			expect(manager.getAkashaSettings()).toMatchObject({
 				enabled: true,
 				injectTemporalBrief: true,
-				eventLogDir: ".pi/custom-akasha-events",
+				eventLogDir: ".akasha/custom-akasha-events",
 				actionGate: {
 					enabled: true,
 					enforceToolGate: true,
@@ -194,7 +194,7 @@ describe("SettingsManager", () => {
 				}),
 			);
 
-			// Create SettingsManager (simulates pi starting up)
+			// Create SettingsManager (simulates akasha starting up)
 			const manager = SettingsManager.create(projectDir, agentDir);
 
 			// Simulate user editing settings.json externally to add enabledModels
@@ -358,7 +358,7 @@ describe("SettingsManager", () => {
 	describe("error tracking", () => {
 		it("should collect and clear load errors via drainErrors", () => {
 			const globalSettingsPath = join(agentDir, "settings.json");
-			const projectSettingsPath = join(projectDir, ".pi", "settings.json");
+			const projectSettingsPath = join(projectDir, ".akasha", "settings.json");
 			writeFileSync(globalSettingsPath, "{ invalid global json");
 			writeFileSync(projectSettingsPath, "{ invalid project json");
 
@@ -372,46 +372,46 @@ describe("SettingsManager", () => {
 	});
 
 	describe("project settings directory creation", () => {
-		it("should not create .pi folder when only reading project settings", () => {
-			// Create agent dir with global settings, but NO .pi folder in project
+		it("should not create .akasha folder when only reading project settings", () => {
+			// Create agent dir with global settings, but NO .akasha folder in project
 			const settingsPath = join(agentDir, "settings.json");
 			writeFileSync(settingsPath, JSON.stringify({ theme: "dark" }));
 
-			// Delete the .pi folder that beforeEach created
-			rmSync(join(projectDir, ".pi"), { recursive: true });
+			// Delete the .akasha folder that beforeEach created
+			rmSync(join(projectDir, ".akasha"), { recursive: true });
 
 			// Create SettingsManager (reads both global and project settings)
 			const manager = SettingsManager.create(projectDir, agentDir);
 
-			// .pi folder should NOT have been created just from reading
-			expect(existsSync(join(projectDir, ".pi"))).toBe(false);
+			// .akasha folder should NOT have been created just from reading
+			expect(existsSync(join(projectDir, ".akasha"))).toBe(false);
 
 			// Settings should still be loaded from global
 			expect(manager.getTheme()).toBe("dark");
 		});
 
-		it("should create .pi folder when writing project settings", async () => {
-			// Create agent dir with global settings, but NO .pi folder in project
+		it("should create .akasha folder when writing project settings", async () => {
+			// Create agent dir with global settings, but NO .akasha folder in project
 			const settingsPath = join(agentDir, "settings.json");
 			writeFileSync(settingsPath, JSON.stringify({ theme: "dark" }));
 
-			// Delete the .pi folder that beforeEach created
-			rmSync(join(projectDir, ".pi"), { recursive: true });
+			// Delete the .akasha folder that beforeEach created
+			rmSync(join(projectDir, ".akasha"), { recursive: true });
 
 			const manager = SettingsManager.create(projectDir, agentDir);
 
-			// .pi folder should NOT exist yet
-			expect(existsSync(join(projectDir, ".pi"))).toBe(false);
+			// .akasha folder should NOT exist yet
+			expect(existsSync(join(projectDir, ".akasha"))).toBe(false);
 
 			// Write a project-specific setting
 			manager.setProjectPackages([{ source: "npm:test-pkg" }]);
 			await manager.flush();
 
-			// Now .pi folder should exist
-			expect(existsSync(join(projectDir, ".pi"))).toBe(true);
+			// Now .akasha folder should exist
+			expect(existsSync(join(projectDir, ".akasha"))).toBe(true);
 
 			// And settings file should be created
-			expect(existsSync(join(projectDir, ".pi", "settings.json"))).toBe(true);
+			expect(existsSync(join(projectDir, ".akasha", "settings.json"))).toBe(true);
 		});
 	});
 
@@ -463,7 +463,7 @@ describe("SettingsManager", () => {
 
 		it("should return project sessionDir, overriding global", () => {
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ sessionDir: "/global/sessions" }));
-			writeFileSync(join(projectDir, ".pi", "settings.json"), JSON.stringify({ sessionDir: "./sessions" }));
+			writeFileSync(join(projectDir, ".akasha", "settings.json"), JSON.stringify({ sessionDir: "./sessions" }));
 			const manager = SettingsManager.create(projectDir, agentDir);
 			expect(manager.getSessionDir()).toBe("./sessions");
 		});

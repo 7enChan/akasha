@@ -14,8 +14,8 @@ describe("Akasha entry CLI", () => {
 	beforeEach(() => {
 		tempDir = mkdtempSync(join(tmpdir(), "akasha-entry-cli-"));
 		projectDir = join(tempDir, "project");
-		previousAgentDir = process.env.PI_CODING_AGENT_DIR;
-		process.env.PI_CODING_AGENT_DIR = join(tempDir, "agent");
+		previousAgentDir = process.env.AKASHA_CODING_AGENT_DIR;
+		process.env.AKASHA_CODING_AGENT_DIR = join(tempDir, "agent");
 		logs = [];
 		vi.spyOn(console, "log").mockImplementation((message?: unknown) => {
 			logs.push(String(message ?? ""));
@@ -25,9 +25,9 @@ describe("Akasha entry CLI", () => {
 	afterEach(() => {
 		vi.restoreAllMocks();
 		if (previousAgentDir === undefined) {
-			delete process.env.PI_CODING_AGENT_DIR;
+			delete process.env.AKASHA_CODING_AGENT_DIR;
 		} else {
-			process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+			process.env.AKASHA_CODING_AGENT_DIR = previousAgentDir;
 		}
 		if (existsSync(tempDir)) {
 			rmSync(tempDir, { recursive: true, force: true });
@@ -35,8 +35,8 @@ describe("Akasha entry CLI", () => {
 	});
 
 	it("writes the Akasha preset to project settings by default", async () => {
-		const handled = await handleAkashaEntrypointCommand(["init"], projectDir, { force: true });
-		const settings = JSON.parse(readFileSync(join(projectDir, ".pi", "settings.json"), "utf-8"));
+		const handled = await handleAkashaEntrypointCommand(["init"], projectDir);
+		const settings = JSON.parse(readFileSync(join(projectDir, ".akasha", "settings.json"), "utf-8"));
 
 		expect(handled).toBe(true);
 		expect(settings.akasha).toMatchObject({
@@ -55,8 +55,8 @@ describe("Akasha entry CLI", () => {
 	});
 
 	it("writes the Akasha preset to global settings with --global", async () => {
-		const handled = await handleAkashaEntrypointCommand(["enable", "--global"], projectDir, { force: true });
-		const settings = JSON.parse(readFileSync(join(process.env.PI_CODING_AGENT_DIR!, "settings.json"), "utf-8"));
+		const handled = await handleAkashaEntrypointCommand(["enable", "--global"], projectDir);
+		const settings = JSON.parse(readFileSync(join(process.env.AKASHA_CODING_AGENT_DIR!, "settings.json"), "utf-8"));
 
 		expect(handled).toBe(true);
 		expect(settings.akasha).toMatchObject({ enabled: true });
@@ -64,10 +64,10 @@ describe("Akasha entry CLI", () => {
 	});
 
 	it("prints resolved Akasha status", async () => {
-		await handleAkashaEntrypointCommand(["init"], projectDir, { force: true });
+		await handleAkashaEntrypointCommand(["init"], projectDir);
 		logs = [];
 
-		const handled = await handleAkashaEntrypointCommand(["status"], projectDir, { force: true });
+		const handled = await handleAkashaEntrypointCommand(["status"], projectDir);
 
 		expect(handled).toBe(true);
 		expect(logs.join("\n")).toContain("Akasha status");
@@ -75,7 +75,7 @@ describe("Akasha entry CLI", () => {
 	});
 
 	it("runs daemon callbacks outside an interactive session", async () => {
-		await handleAkashaEntrypointCommand(["init"], projectDir, { force: true });
+		await handleAkashaEntrypointCommand(["init"], projectDir);
 		const store = seedAkashaLog(projectDir);
 		store.append({
 			kind: "time.callback.due",
@@ -95,25 +95,25 @@ describe("Akasha entry CLI", () => {
 		const handled = await handleAkashaEntrypointCommand(
 			["daemon", "run", "--scope", "project", "--dispatch", "agent_prompt_file"],
 			projectDir,
-			{ force: true },
 		);
 
 		expect(handled).toBe(true);
 		expect(logs.join("\n")).toContain("Akasha daemon run");
 		expect(logs.join("\n")).toContain("- dispatched: 1");
 		expect(
-			readFileSync(join(process.env.PI_CODING_AGENT_DIR!, "akasha", "inbox", "pending-callbacks.jsonl"), "utf-8"),
+			readFileSync(
+				join(process.env.AKASHA_CODING_AGENT_DIR!, "akasha", "inbox", "pending-callbacks.jsonl"),
+				"utf-8",
+			),
 		).toContain("Resume from CLI daemon");
 	});
 
 	it("rebuilds projection caches outside an interactive session", async () => {
-		await handleAkashaEntrypointCommand(["init"], projectDir, { force: true });
+		await handleAkashaEntrypointCommand(["init"], projectDir);
 		seedAkashaLog(projectDir);
 		logs = [];
 
-		const handled = await handleAkashaEntrypointCommand(["cache", "rebuild", "--scope", "project"], projectDir, {
-			force: true,
-		});
+		const handled = await handleAkashaEntrypointCommand(["cache", "rebuild", "--scope", "project"], projectDir);
 
 		expect(handled).toBe(true);
 		expect(logs.join("\n")).toContain("Akasha cache rebuild");
@@ -122,7 +122,9 @@ describe("Akasha entry CLI", () => {
 });
 
 function seedAkashaLog(projectDir: string): JsonlAkashaStore {
-	const store = new JsonlAkashaStore(join(process.env.PI_CODING_AGENT_DIR!, "akasha", "events", "session-1.jsonl"));
+	const store = new JsonlAkashaStore(
+		join(process.env.AKASHA_CODING_AGENT_DIR!, "akasha", "events", "session-1.jsonl"),
+	);
 	store.append({
 		kind: "session.started",
 		sessionId: "session-1",

@@ -1,5 +1,5 @@
 import { isAbsolute, join, resolve } from "node:path";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/akasha-agent-core";
 import { v7 as uuidv7 } from "uuid";
 import type {
 	ExtensionAPI,
@@ -85,7 +85,7 @@ export function resolveAkashaEmbeddingIndexPath(
 }
 
 export function createAkashaCollectorExtension(options: AkashaCollectorOptions): ExtensionFactory {
-	return (pi: ExtensionAPI) => {
+	return (akasha: ExtensionAPI) => {
 		let store: JsonlAkashaStore | undefined;
 		let embeddingStore: JsonlAkashaEmbeddingStore | undefined;
 		let heartbeat: AkashaHeartbeatController | undefined;
@@ -289,13 +289,13 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			};
 		};
 
-		registerAkashaCommands(pi, getStore, {
+		registerAkashaCommands(akasha, getStore, {
 			agentDir: options.agentDir,
 			eventLogDir: options.settings.eventLogDir,
 			reflection: reflectionSettings,
 		});
 
-		pi.registerTool({
+		akasha.registerTool({
 			name: "akasha_create_commitment",
 			label: "akasha commitment",
 			description:
@@ -310,7 +310,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 				eventToolResult(appendAkashaCommitment(syscallContext(ctx, toolCallId), params)),
 		});
 
-		pi.registerTool({
+		akasha.registerTool({
 			name: "akasha_resolve_commitment",
 			label: "akasha resolve commitment",
 			description: "Resolve an existing Akasha commitment with optional evidence.",
@@ -320,7 +320,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 				eventToolResult(appendAkashaCommitmentResolution(syscallContext(ctx, toolCallId), params)),
 		});
 
-		pi.registerTool({
+		akasha.registerTool({
 			name: "akasha_create_prediction",
 			label: "akasha prediction",
 			description:
@@ -335,7 +335,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 				eventToolResult(appendAkashaPrediction(syscallContext(ctx, toolCallId), params)),
 		});
 
-		pi.registerTool({
+		akasha.registerTool({
 			name: "akasha_check_prediction",
 			label: "akasha check prediction",
 			description: "Check or correct an Akasha prediction with the observed actual outcome.",
@@ -345,7 +345,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 				eventToolResult(appendAkashaPredictionCheck(syscallContext(ctx, toolCallId), params)),
 		});
 
-		pi.on("session_start", (event, ctx) => {
+		akasha.on("session_start", (event, ctx) => {
 			ensureStore(ctx);
 			agentRunId = `session-${uuidv7()}`;
 			resetEphemeralState();
@@ -363,7 +363,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			restartHeartbeat(ctx);
 		});
 
-		pi.on("session_shutdown", (event, ctx) => {
+		akasha.on("session_shutdown", (event, ctx) => {
 			ensureStore(ctx);
 			append(
 				baseDraft(
@@ -382,14 +382,14 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			heartbeat = undefined;
 		});
 
-		pi.on("agent_start", () => {
+		akasha.on("agent_start", () => {
 			agentRunId = `agent-${uuidv7()}`;
 			currentTurnEventId = undefined;
 			latestUserEventId = undefined;
 			latestAssistantEventId = undefined;
 		});
 
-		pi.on("turn_start", (event, ctx) => {
+		akasha.on("turn_start", (event, ctx) => {
 			ensureStore(ctx);
 			const turn = append(
 				baseDraft(
@@ -408,7 +408,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			currentTurnEventId = turn?.eventId;
 		});
 
-		pi.on("turn_end", async (event, ctx) => {
+		akasha.on("turn_end", async (event, ctx) => {
 			ensureStore(ctx);
 			const completed = append(
 				baseDraft(
@@ -432,7 +432,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			}
 		});
 
-		pi.on("message_end", (event, ctx) => {
+		akasha.on("message_end", (event, ctx) => {
 			ensureStore(ctx);
 
 			let parentEventIds: string[];
@@ -480,7 +480,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			return undefined;
 		});
 
-		pi.on("tool_call", (event, ctx) => {
+		akasha.on("tool_call", (event, ctx) => {
 			ensureStore(ctx);
 			const parentEventIds = parents(
 				toolAssistantParentIds.get(event.toolCallId),
@@ -591,7 +591,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			return undefined;
 		});
 
-		pi.on("tool_result", (event, ctx) => {
+		akasha.on("tool_result", (event, ctx) => {
 			ensureStore(ctx);
 			const requestEventId = toolRequestEventIds.get(event.toolCallId);
 			const completed = append(
@@ -620,35 +620,35 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			return undefined;
 		});
 
-		pi.on("session_compact", (event, ctx) => {
+		akasha.on("session_compact", (event, ctx) => {
 			ensureStore(ctx);
 			reconcileSessionEntry(event.compactionEntry, parents(currentTurnEventId, latestLeafEventId)[0]);
 		});
 
-		pi.on("session_tree", (event, ctx) => {
+		akasha.on("session_tree", (event, ctx) => {
 			ensureStore(ctx);
 			if (event.summaryEntry) {
 				reconcileSessionEntry(event.summaryEntry, parents(currentTurnEventId, latestLeafEventId)[0]);
 			}
 		});
 
-		pi.on("model_select", (event, ctx) => {
+		akasha.on("model_select", (event, ctx) => {
 			ensureStore(ctx);
 			append(mapModelSelect(event));
 		});
 
-		pi.on("thinking_level_select", (event, ctx) => {
+		akasha.on("thinking_level_select", (event, ctx) => {
 			ensureStore(ctx);
 			append(mapThinkingLevelSelect(event));
 		});
 
-		pi.on("user_bash", (event, ctx) => {
+		akasha.on("user_bash", (event, ctx) => {
 			ensureStore(ctx);
 			append(mapUserBash(event));
 			return undefined;
 		});
 
-		pi.on("context", async (event, ctx) => {
+		akasha.on("context", async (event, ctx) => {
 			ensureStore(ctx);
 			if (!store) return undefined;
 			const activeStore = store;

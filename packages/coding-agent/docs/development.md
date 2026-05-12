@@ -5,8 +5,8 @@ See [AGENTS.md](../../../AGENTS.md) for additional guidelines.
 ## Setup
 
 ```bash
-git clone https://github.com/earendil-works/pi-mono
-cd pi-mono
+git clone https://github.com/7enChan/akasha
+cd akasha
 npm install
 npm run build
 ```
@@ -14,25 +14,25 @@ npm run build
 Run from source:
 
 ```bash
-/path/to/pi-mono/pi-test.sh
+/path/to/akasha/akasha-test.sh
 ```
 
-The script can be run from any directory. Pi keeps the caller's current working directory.
+The script can be run from any directory. Akasha keeps the caller's current working directory.
 
-## Forking / Rebranding
+## Product Configuration
 
-Configure via `package.json`:
+Configure Akasha package identity via `package.json`:
 
 ```json
 {
-  "piConfig": {
-    "name": "pi",
-    "configDir": ".pi"
+  "akashaConfig": {
+    "name": "akasha",
+    "configDir": ".akasha"
   }
 }
 ```
 
-Change `name`, `configDir`, and `bin` field for your fork. Affects CLI banner, config paths, and environment variable names.
+`name`, `configDir`, and `bin` affect the CLI banner, config paths, and Akasha-specific environment variable names.
 
 ## Path Resolution
 
@@ -48,7 +48,7 @@ Never use `__dirname` directly for package assets.
 
 ## Debug Command
 
-`/debug` (hidden) writes to `~/.pi/agent/pi-debug.log`:
+`/debug` (hidden) writes to `~/.akasha/agent/akasha-debug.log`:
 - Rendered TUI lines with ANSI codes
 - Last messages sent to the LLM
 

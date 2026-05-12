@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/akasha-agent-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAkashaCollectorExtension, resolveAkashaEventLogPath } from "../src/core/akasha/index.js";
 import type {
@@ -51,7 +51,7 @@ describe("Akasha collector extension", () => {
 					},
 				},
 			}).getAkashaSettings(),
-		})(extension.pi);
+		})(extension.akasha);
 		const ctx = fakeContext(cwd, sessionManager);
 
 		await extension.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
@@ -275,7 +275,7 @@ describe("Akasha collector extension", () => {
 					enabled: true,
 				},
 			}).getAkashaSettings(),
-		})(extension.pi);
+		})(extension.akasha);
 		const ctx = fakeContext(cwd, sessionManager);
 
 		await extension.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
@@ -306,7 +306,7 @@ describe("Akasha collector extension", () => {
 					},
 				},
 			}).getAkashaSettings(),
-		})(extension.pi);
+		})(extension.akasha);
 		const ctx = fakeContext(cwd, sessionManager);
 
 		await extension.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
@@ -380,7 +380,7 @@ function customMessageContent(message: AgentMessage | undefined): string {
 }
 
 function createFakeExtension(): {
-	pi: ExtensionAPI;
+	akasha: ExtensionAPI;
 	commands: Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">>;
 	tools: Map<string, ToolDefinition>;
 	emit: (eventType: string, event: unknown, ctx: ExtensionContext) => Promise<unknown>;
@@ -388,7 +388,7 @@ function createFakeExtension(): {
 	const handlers = new Map<string, ExtensionHandler<unknown, unknown>[]>();
 	const commands = new Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">>();
 	const tools = new Map<string, ToolDefinition>();
-	const pi = {
+	const akasha = {
 		on(event: string, handler: ExtensionHandler<unknown, unknown>): void {
 			const existing = handlers.get(event) ?? [];
 			existing.push(handler);
@@ -403,7 +403,7 @@ function createFakeExtension(): {
 	} as ExtensionAPI;
 
 	return {
-		pi,
+		akasha,
 		commands,
 		tools,
 		emit: async (eventType, event, ctx) => {

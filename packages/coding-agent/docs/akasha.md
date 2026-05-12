@@ -1,6 +1,6 @@
 # Akasha
 
-Akasha is the optional local-first time layer for coding-agent sessions. It records session, turn, message, tool, artifact, policy, callback, and maintenance events into an append-only JSONL time stream, then projects that stream into temporal recall, action-gate context, task state, and callback lifecycle.
+Akasha is a time-native coding agent built on the Akasha runtime. It records session, turn, message, tool, artifact, policy, callback, and maintenance events into an append-only JSONL time stream, then projects that stream into temporal recall, action-gate context, task state, and callback lifecycle.
 
 Akasha does not replace the normal session transcript. It writes a sidecar event log and can inject hidden temporal context only when explicitly enabled.
 
@@ -12,7 +12,7 @@ Initialize Akasha for the current project:
 akasha init
 ```
 
-This writes the Akasha dogfood preset to `.pi/settings.json`.
+This writes the Akasha dogfood preset to `.akasha/settings.json`.
 
 Start the agent through the Akasha entrypoint:
 
@@ -48,7 +48,18 @@ Use a global preset instead of a project preset:
 akasha init --global
 ```
 
-The `pi` command remains unchanged. `akasha` is an alias entrypoint over the same runtime with Akasha-oriented defaults and management commands.
+The `akasha` command remains unchanged. `akasha` is the Akasha product entrypoint over the same runtime with Akasha-oriented identity, defaults, and management commands.
+
+## Identity Boundary
+
+Under the `akasha` entrypoint, the agent should identify itself as Akasha. Akasha remains the compatible runtime and implementation lineage, not the user-facing identity.
+
+M27 intentionally keeps these Akasha compatibility surfaces:
+
+- package names such as `@earendil-works/akasha-coding-agent`
+- runtime dependencies such as `akasha-ai`, `akasha-agent-core`, and `akasha-tui`
+- default settings paths such as `.akasha/settings.json` and `~/.akasha/agent/settings.json`
+- the existing `akasha` command
 
 ## Dogfood Preset
 
@@ -136,7 +147,7 @@ By default, Akasha writes event logs under:
 For the default installation this is:
 
 ```text
-~/.pi/agent/akasha/events/
+~/.akasha/agent/akasha/events/
 ```
 
 Projection caches are written under:
@@ -152,7 +163,7 @@ Override with:
 ```json
 {
   "akasha": {
-    "eventLogDir": ".pi/akasha/events"
+    "eventLogDir": ".akasha/akasha/events"
   }
 }
 ```

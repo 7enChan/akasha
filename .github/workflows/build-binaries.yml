@@ -64,16 +64,16 @@ jobs:
           gh release create "${RELEASE_TAG}" \
             --title "${RELEASE_TAG}" \
             --notes-file /tmp/release-notes.md \
-            pi-darwin-arm64.tar.gz \
-            pi-darwin-x64.tar.gz \
-            pi-linux-x64.tar.gz \
-            pi-linux-arm64.tar.gz \
-            pi-windows-x64.zip \
+            akasha-darwin-arm64.tar.gz \
+            akasha-darwin-x64.tar.gz \
+            akasha-linux-x64.tar.gz \
+            akasha-linux-arm64.tar.gz \
+            akasha-windows-x64.zip \
             2>/dev/null || \
           gh release upload "${RELEASE_TAG}" \
-            pi-darwin-arm64.tar.gz \
-            pi-darwin-x64.tar.gz \
-            pi-linux-x64.tar.gz \
-            pi-linux-arm64.tar.gz \
-            pi-windows-x64.zip \
+            akasha-darwin-arm64.tar.gz \
+            akasha-darwin-x64.tar.gz \
+            akasha-linux-x64.tar.gz \
+            akasha-linux-arm64.tar.gz \
+            akasha-windows-x64.zip \
             --clobber

@@ -1,6 +1,6 @@
-import type { Message } from "@earendil-works/pi-ai";
-import type { AgentMessage, MessageRenderer } from "@earendil-works/pi-web-ui";
-import { defaultConvertToLlm, registerMessageRenderer } from "@earendil-works/pi-web-ui";
+import type { Message } from "@earendil-works/akasha-ai";
+import type { AgentMessage, MessageRenderer } from "@earendil-works/akasha-web-ui";
+import { defaultConvertToLlm, registerMessageRenderer } from "@earendil-works/akasha-web-ui";
 import { Alert } from "@mariozechner/mini-lit/dist/Alert.js";
 import { html } from "lit";
 
@@ -17,8 +17,8 @@ export interface SystemNotificationMessage {
 }
 
 // Extend CustomAgentMessages interface via declaration merging
-// This must target pi-agent-core where CustomAgentMessages is defined
-declare module "@earendil-works/pi-agent-core" {
+// This must target akasha-agent-core where CustomAgentMessages is defined
+declare module "@earendil-works/akasha-agent-core" {
 	interface CustomAgentMessages {
 		"system-notification": SystemNotificationMessage;
 	}

@@ -1,13 +1,13 @@
 # Akasha M14 Product Entry and Dogfood Shell Plan
 
-**Goal:** Make Akasha visible as a daily-use product entry while keeping the existing pi-coding-agent runtime and package identity stable.
+**Goal:** Make Akasha visible as a daily-use product entry while keeping the existing akasha-coding-agent runtime and package identity stable.
 
 **Scope**
 
 1. **CLI Alias**
    - Add an `akasha` binary alias that launches the same runtime with Akasha-branded help/title.
-   - Keep `pi` unchanged.
-   - Reuse the same `.pi` config directory in M14 to avoid splitting user sessions and settings.
+   - Keep `akasha` unchanged.
+   - Reuse the same `.akasha` config directory in M14 to avoid splitting user sessions and settings.
 
 2. **Akasha Preset**
    - Add a conservative local-first Akasha preset:

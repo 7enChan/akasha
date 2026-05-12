@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import chalk from "chalk";
-import { CONFIG_DIR_NAME, getAgentDir, IS_AKASHA_ENTRYPOINT } from "./config.js";
+import { CONFIG_DIR_NAME, getAgentDir } from "./config.js";
 import type { AkashaCallbackDispatchMode } from "./core/akasha/callback-runner.js";
 import { buildRunnableCallbacks, runAkashaCallbackRunner } from "./core/akasha/callback-runner.js";
 import { buildAkashaDaemonQueue, runAkashaDaemonQueuePass } from "./core/akasha/daemon-queue.js";
@@ -16,17 +16,13 @@ import { buildAkashaSessionIndex } from "./core/akasha/session-index.js";
 import type { AkashaStore } from "./core/akasha/types.js";
 import { SettingsManager } from "./core/settings-manager.js";
 
-export async function handleAkashaEntrypointCommand(
-	args: string[],
-	cwd: string,
-	options: { force?: boolean } = {},
-): Promise<boolean> {
-	if (!IS_AKASHA_ENTRYPOINT && !options.force) return false;
+export async function handleAkashaEntrypointCommand(args: string[], cwd: string): Promise<boolean> {
 	const [command] = args;
 	if (
 		command !== "init" &&
 		command !== "enable" &&
 		command !== "status" &&
+		command !== "doctor" &&
 		command !== "daemon" &&
 		command !== "cache"
 	) {
@@ -49,6 +45,12 @@ export async function handleAkashaEntrypointCommand(
 
 	if (command === "cache") {
 		handleAkashaCacheCommand(args.slice(1), cwd, agentDir, settingsManager);
+		return true;
+	}
+
+	if (command === "doctor") {
+		console.log("Akasha doctor");
+		console.log(chalk.green("Runtime paths: Akasha-only"));
 		return true;
 	}
 
@@ -84,12 +86,14 @@ function printAkashaEntrypointHelp(command?: string): void {
 			? "akasha daemon status|tick|run [--scope current|project|all] [--dispatch record_only|terminal_notification|agent_prompt_file]"
 			: command === "cache"
 				? "akasha cache status|clear|rebuild [--scope current|project|all]"
-				: command === "status"
-					? "akasha status"
-					: command === "enable"
-						? "akasha enable [--global]"
-						: "akasha init [--global]";
-	console.log(`${chalk.bold("Akasha")} - local-first time layer for coding-agent sessions
+				: command === "doctor"
+					? "akasha doctor"
+					: command === "status"
+						? "akasha status"
+						: command === "enable"
+							? "akasha enable [--global]"
+							: "akasha init [--global]";
+	console.log(`${chalk.bold("Akasha")} - time-native coding agent
 
 ${chalk.bold("Usage:")}
   ${usage}
@@ -98,12 +102,15 @@ ${chalk.bold("Commands:")}
   akasha init [--global]    Write the Akasha dogfood preset
   akasha enable [--global]  Alias for init
   akasha status             Show resolved Akasha state
+  akasha doctor             Check Akasha runtime health
   akasha daemon ...         Run Akasha daemon operations outside a session
   akasha cache ...          Inspect or rebuild Akasha projection caches
   akasha                    Start the agent runtime
 
 By default init writes project settings at ${CONFIG_DIR_NAME}/settings.json.
-Use --global to write ${CONFIG_DIR_NAME}/agent/settings.json instead.`);
+Use --global to write ${CONFIG_DIR_NAME}/agent/settings.json instead.
+
+Akasha stores local runtime state in ${CONFIG_DIR_NAME}.`);
 }
 
 async function handleAkashaDaemonCommand(

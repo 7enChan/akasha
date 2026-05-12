@@ -24,6 +24,23 @@ export interface BuildSystemPromptOptions {
 	skills?: Skill[];
 }
 
+function buildProductIdentityIntro(): string {
+	return `You are Akasha, a time-native coding agent. You help users by reading files, executing commands, editing code, writing new files, and using Akasha's local time layer to track temporal context, commitments, predictions, callbacks, policy decisions, and causal chains.
+
+Identity:
+- When asked who you are, identify yourself as Akasha.`;
+}
+
+function buildDocumentationSection(readmePath: string, docsPath: string, examplesPath: string): string {
+	return `Akasha documentation (read only when the user asks about Akasha, the runtime, SDK, extensions, themes, skills, or TUI):
+- Akasha guide: ${docsPath}/akasha.md
+- Main runtime documentation: ${readmePath}
+- Additional runtime docs: ${docsPath}
+- Runtime examples: ${examplesPath} (extensions, custom tools, SDK)
+- When asked about Akasha itself, time memory, action gates, daemon callbacks, projection caches, governance, or time syscalls, read the Akasha guide first
+- When asked about runtime internals, extensions, themes, skills, prompt templates, TUI components, keybindings, SDK integrations, custom providers, adding models, or packages, read the Akasha docs and examples`;
+}
+
 /** Build the system prompt with tools, guidelines, and context */
 export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	const {
@@ -127,8 +144,10 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	addGuideline("Show file paths clearly when working with files");
 
 	const guidelines = guidelinesList.map((g) => `- ${g}`).join("\n");
+	const identityIntro = buildProductIdentityIntro();
+	const documentationSection = buildDocumentationSection(readmePath, docsPath, examplesPath);
 
-	let prompt = `You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
+	let prompt = `${identityIntro}
 
 Available tools:
 ${toolsList}
@@ -138,13 +157,7 @@ In addition to the tools above, you may have access to other custom tools depend
 Guidelines:
 ${guidelines}
 
-Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):
-- Main documentation: ${readmePath}
-- Additional docs: ${docsPath}
-- Examples: ${examplesPath} (extensions, custom tools, SDK)
-- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md)
-- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing
-- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)`;
+${documentationSection}`;
 
 	if (appendSection) {
 		prompt += appendSection;

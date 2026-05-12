@@ -6,7 +6,7 @@
 
 1. **Temporal Kernel Facade**
    - Add `temporal-kernel.ts` as the internal entrypoint for append, state projection, action context, policy evaluation, daemon pass, and callback completion.
-   - Keep `collector-extension.ts` as the pi-coding-agent adapter, but route action context and policy decisions through the kernel.
+   - Keep `collector-extension.ts` as the akasha-coding-agent adapter, but route action context and policy decisions through the kernel.
    - Avoid a broad rewrite of all existing projections in this slice.
 
 2. **Auditable Action Gate**

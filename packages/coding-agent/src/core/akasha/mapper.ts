@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/akasha-agent-core";
 import type { ToolCallEvent, ToolResultEvent } from "../extensions/types.js";
 import type { SessionEntry } from "../session-manager.js";
 import type { AkashaActor, AkashaEventDraft, AkashaEventKind } from "./types.js";

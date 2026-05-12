@@ -5,8 +5,8 @@
  * a summary of the branch being left so context isn't lost.
  */
 
-import type { ImageContent, Model, TextContent } from "@earendil-works/pi-ai";
-import { completeSimple } from "@earendil-works/pi-ai";
+import type { ImageContent, Model, TextContent } from "@earendil-works/akasha-ai";
+import { completeSimple } from "@earendil-works/akasha-ai";
 import type { AgentMessage } from "../../types.js";
 import {
 	convertToLlm,
@@ -195,7 +195,7 @@ export function prepareBranchEntries(entries: SessionTreeEntry[], tokenBudget: n
 
 	// First pass: collect file ops from ALL entries (even if they don't fit in token budget)
 	// This ensures we capture cumulative file tracking from nested branch summaries
-	// Only extract from pi-generated summaries (fromHook !== true), not extension-generated ones
+	// Only extract from akasha-generated summaries (fromHook !== true), not extension-generated ones
 	for (const entry of entries) {
 		if (entry.type === "branch_summary" && !entry.fromHook && entry.details) {
 			const details = entry.details as BranchSummaryDetails;

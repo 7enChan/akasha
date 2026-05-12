@@ -48,11 +48,11 @@ export interface AkashaCommandOptions {
 }
 
 export function registerAkashaCommands(
-	pi: ExtensionAPI,
+	akasha: ExtensionAPI,
 	getStore: () => AkashaStore | undefined,
 	options?: AkashaCommandOptions,
 ): void {
-	pi.registerCommand("akasha", {
+	akasha.registerCommand("akasha", {
 		description:
 			"Inspect Akasha time events: /akasha status | init [global] | enable [global] | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | daemon [status|tick|run] | cache [status|clear|rebuild] | callback-complete <callbackId> [evidenceEventId] | callback-cancel <callbackId> [reason] | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
 		getArgumentCompletions: (prefix) => {

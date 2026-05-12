@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/akasha-agent-core";
 import { describe, expect, it } from "vitest";
 import { mapMessageEnd, mapToolCompleted, mapToolOutcome, mapToolRequested } from "../src/core/akasha/mapper.js";
 import type { AkashaEventDraft } from "../src/core/akasha/types.js";

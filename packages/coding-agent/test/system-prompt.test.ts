@@ -99,4 +99,22 @@ describe("buildSystemPrompt", () => {
 			expect(prompt.match(/- Use dynamic_tool for summaries\./g)).toHaveLength(1);
 		});
 	});
+
+	describe("product identity", () => {
+		test("uses Akasha identity unconditionally", () => {
+			const prompt = buildSystemPrompt({
+				selectedTools: [],
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).toContain("You are Akasha");
+			expect(prompt).toContain("time-native coding agent");
+			expect(prompt).toContain("identify yourself as Akasha");
+			expect(prompt).toContain("Akasha guide:");
+			expect(prompt).not.toContain("operating inside akasha");
+			expect(prompt).not.toContain("Do not introduce yourself as akasha");
+		});
+	});
 });

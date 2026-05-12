@@ -4,9 +4,9 @@
 
 **Goal:** Evolve Akasha from the current M1 local event sidecar into a time-native agent runtime with projections, recall evaluation, open loops, reflection crystals, temporal RAG, world-state projections, Karma Ledger, scheduling, governance, and multi-runtime adapters.
 
-**Architecture:** Akasha keeps append-only events as the source of truth and treats every derived view as a rebuildable projection. The first product surface is `pi-coding-agent`; later stages extract a stable core SDK so other agent runtimes can map their lifecycles into the same time model.
+**Architecture:** Akasha keeps append-only events as the source of truth and treats every derived view as a rebuildable projection. The first product surface is `akasha-coding-agent`; later stages extract a stable core SDK so other agent runtimes can map their lifecycles into the same time model.
 
-**Tech Stack:** TypeScript, Vitest, Node.js filesystem JSONL for M1, optional SQLite/Postgres for later stores, existing `pi-coding-agent` extension hooks, existing settings/resource-loader/session-manager patterns.
+**Tech Stack:** TypeScript, Vitest, Node.js filesystem JSONL for M1, optional SQLite/Postgres for later stores, existing `akasha-coding-agent` extension hooks, existing settings/resource-loader/session-manager patterns.
 
 ---
 
