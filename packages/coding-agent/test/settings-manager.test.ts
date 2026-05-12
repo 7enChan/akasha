@@ -149,6 +149,37 @@ describe("SettingsManager", () => {
 				},
 			});
 		});
+
+		it("should apply the Akasha dogfood preset", async () => {
+			const manager = SettingsManager.inMemory({
+				akasha: {
+					eventLogDir: ".pi/custom-akasha-events",
+				},
+			});
+
+			manager.applyAkashaDogfoodPreset();
+			await manager.flush();
+
+			expect(manager.getAkashaSettings()).toMatchObject({
+				enabled: true,
+				injectTemporalBrief: true,
+				eventLogDir: ".pi/custom-akasha-events",
+				actionGate: {
+					enabled: true,
+					enforceToolGate: true,
+					blockDestructiveCommands: true,
+				},
+				maintenance: {
+					enabled: true,
+					runOnTurnEnd: true,
+					heartbeatEnabled: true,
+				},
+				embedding: {
+					enabled: false,
+					provider: "off",
+				},
+			});
+		});
 	});
 
 	describe("preserves externally added settings", () => {

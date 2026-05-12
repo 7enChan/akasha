@@ -85,6 +85,7 @@ export type {
 	AkashaPolicyRule,
 } from "./policy-kernel.js";
 export { createPolicyEvaluatedPayload, evaluateAkashaPolicy } from "./policy-kernel.js";
+export { createAkashaDogfoodPreset, mergeAkashaSettings } from "./preset.js";
 export type {
 	AkashaProjectTimeline,
 	AkashaProjectTimelineOptions,

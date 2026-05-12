@@ -4,6 +4,7 @@ import { homedir } from "os";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.js";
+import { createAkashaDogfoodPreset, mergeAkashaSettings } from "./akasha/preset.js";
 
 export interface CompactionSettings {
 	enabled?: boolean; // default: true
@@ -862,6 +863,21 @@ export class SettingsManager {
 				redactSecrets: this.settings.akasha?.privacy?.redactSecrets ?? true,
 			},
 		};
+	}
+
+	applyAkashaDogfoodPreset(scope: SettingsScope = "project"): void {
+		const preset = createAkashaDogfoodPreset();
+		if (scope === "global") {
+			this.globalSettings.akasha = mergeAkashaSettings(this.globalSettings.akasha, preset);
+			this.markModified("akasha");
+			this.save();
+			return;
+		}
+
+		const projectSettings = structuredClone(this.projectSettings);
+		projectSettings.akasha = mergeAkashaSettings(projectSettings.akasha, preset);
+		this.markProjectModified("akasha");
+		this.saveProjectSettings(projectSettings);
 	}
 
 	getBranchSummarySettings(): { reserveTokens: number; skipPrompt: boolean } {

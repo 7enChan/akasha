@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "../extensions/types.js";
 import type { ResolvedAkashaReflectionSettings } from "../settings-manager.js";
+import { SettingsManager } from "../settings-manager.js";
 import { buildAkashaActionGateContext } from "./action-gate.js";
 import type { AkashaDaemonQueueItem } from "./daemon-queue.js";
 import { buildAkashaDaemonQueue, markAkashaCallbackCancelled, markAkashaCallbackCompleted } from "./daemon-queue.js";
@@ -41,10 +42,12 @@ export function registerAkashaCommands(
 ): void {
 	pi.registerCommand("akasha", {
 		description:
-			"Inspect Akasha time events: /akasha status | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | callback-complete <callbackId> [evidenceEventId] | callback-cancel <callbackId> [reason] | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
+			"Inspect Akasha time events: /akasha status | init [global] | enable [global] | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | callback-complete <callbackId> [evidenceEventId] | callback-cancel <callbackId> [reason] | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
 		getArgumentCompletions: (prefix) => {
 			const commands = [
 				"status",
+				"init",
+				"enable",
 				"timeline",
 				"project-timeline",
 				"user-timeline",
@@ -82,6 +85,19 @@ export function registerAkashaCommands(
 			if (subcommand === "status") {
 				const count = store.listRecent({ limit: Number.MAX_SAFE_INTEGER }).length;
 				ctx.ui.notify(`Akasha enabled\nEvents: ${count}\nLog: ${store.eventLogPath}`, "info");
+				return;
+			}
+
+			if (subcommand === "init" || subcommand === "enable") {
+				if (!options) {
+					ctx.ui.notify("Akasha settings preset is unavailable without command options.", "warning");
+					return;
+				}
+				const scope = rest[0] === "global" || rest[0] === "--global" ? "global" : "project";
+				const manager = SettingsManager.create(ctx.cwd, options.agentDir);
+				manager.applyAkashaDogfoodPreset(scope);
+				await manager.flush();
+				ctx.ui.notify(`Akasha ${subcommand === "init" ? "initialized" : "enabled"} in ${scope} settings.`, "info");
 				return;
 			}
 
@@ -383,7 +399,7 @@ export function registerAkashaCommands(
 			}
 
 			ctx.ui.notify(
-				"Usage: /akasha status | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | callback-complete <callbackId> [evidenceEventId] | callback-cancel <callbackId> [reason] | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
+				"Usage: /akasha status | init [global] | enable [global] | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | callback-complete <callbackId> [evidenceEventId] | callback-cancel <callbackId> [reason] | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
 				"warning",
 			);
 		},

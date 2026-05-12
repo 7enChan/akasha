@@ -93,6 +93,18 @@ pi
 
 Then just talk to pi. By default, pi gives the model four tools: `read`, `write`, `edit`, and `bash`. The model uses these to fulfill your requests. Add capabilities via [skills](#skills), [prompt templates](#prompt-templates), [extensions](#extensions), or [pi packages](#pi-packages).
 
+### Akasha time layer
+
+This package also ships an `akasha` entrypoint for the optional local-first time layer. It uses the same runtime as `pi`, but adds Akasha setup and status commands:
+
+```bash
+akasha init
+akasha status
+akasha
+```
+
+`akasha init` writes a project-local preset to `.pi/settings.json`, enabling the append-only time stream, temporal brief, action gate, destructive command guard, and maintenance heartbeat. See [docs/akasha.md](docs/akasha.md).
+
 **Platform notes:** [Windows](docs/windows.md) | [Termux (Android)](docs/termux.md) | [tmux](docs/tmux.md) | [Terminal setup](docs/terminal-setup.md) | [Shell aliases](docs/shell-aliases.md)
 
 ---

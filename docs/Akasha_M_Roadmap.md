@@ -393,6 +393,25 @@ agent proposes
 - `/akasha callback-complete <callbackId>` 与 `/akasha callback-cancel <callbackId>` 能关闭 callback 生命周期。
 - JSONL store 在多实例 append 同一 sourceKey 时不会重复写入，且非法新事件会被拒绝。
 
+## M14：Akasha Product Entry 与 Dogfood Shell
+
+**目标：** 让 Akasha 不只是隐藏在 Pi runtime 里的能力，而是有可日常启动、可初始化、可检查的产品入口，同时保留底层 runtime 和配置兼容性。
+
+**核心能力：**
+
+- CLI Alias：新增 `akasha` binary，复用现有 coding-agent runtime，但以 Akasha entrypoint 启动。
+- Dogfood Preset：新增本地优先 Akasha preset，开启事件采集、temporal brief、action gate、destructive command guard、maintenance 和 heartbeat，默认关闭 embeddings 与 reflection。
+- Entrypoint Commands：新增 `akasha init [--global]`、`akasha enable [--global]`、`akasha status`。
+- In-session Commands：在已启用 Akasha 的会话里支持 `/akasha init [global]` 与 `/akasha enable [global]`。
+- Quickstart Docs：新增 Akasha quickstart，并在 README 与 settings docs 中说明入口和 preset。
+
+**退出标准：**
+
+- `akasha init` 默认写入当前项目 `.pi/settings.json`，`--global` 写入全局 settings。
+- `akasha status` 能显示 resolved Akasha 状态和 settings/event log 路径。
+- `akasha` 不改变 `pi` 原有入口行为。
+- 用户能从 README/docs 直接完成初始化、启动和检查。
+
 ## 阶段依赖图
 
 ```text
@@ -412,6 +431,7 @@ M0 Event Ontology
 	                        -> M11 Runtime Enforcement / Governance
 	                          -> M12 Policy Kernel / Daemon Queue / Task Model
 	                            -> M13 Temporal Kernel / Auditable Runtime
+	                              -> M14 Product Entry / Dogfood Shell
 ```
 
 ## 每阶段通用质量门槛
@@ -426,39 +446,39 @@ M0 Event Ontology
 
 ## 当前优先级
 
-当前已进入 **M13 Temporal Kernel / Auditable Runtime** 切片。原因是：M12 已经形成 policy、daemon queue 和 typed task model，但这些模块仍然偏松散，下一步要收束成可审计、可维护、可执行的时间运行时。
+当前已进入 **M14 Product Entry / Dogfood Shell** 切片。原因是：M13 已经把时间内核风险压住，下一步要让 Akasha 成为用户每天可以启动、初始化和检查的明确入口。
 
 推荐下一轮开发标题：
 
 ```text
-Akasha M13: Temporal Kernel and Auditable Runtime
+Akasha M14: Product Entry and Dogfood Shell
 ```
 
 建议第一批文件边界：
 
-- `packages/coding-agent/src/core/akasha/temporal-kernel.ts`
-- `packages/coding-agent/src/core/akasha/action-gate.ts`
-- `packages/coding-agent/src/core/akasha/daemon-queue.ts`
-- `packages/coding-agent/src/core/akasha/jsonl-store.ts`
-- `packages/coding-agent/src/core/akasha/schema.ts`
-- `packages/coding-agent/src/core/akasha/policy-kernel.ts`
-- `packages/coding-agent/src/core/akasha/tool-gate.ts`
-- `packages/coding-agent/src/core/akasha/collector-extension.ts`
-- `packages/coding-agent/test/akasha-temporal-kernel.test.ts`
-- `packages/coding-agent/test/akasha-daemon-queue.test.ts`
-- `packages/coding-agent/test/akasha-store.test.ts`
-- `packages/coding-agent/test/akasha-policy-kernel.test.ts`
+- `packages/coding-agent/src/akasha-cli.ts`
+- `packages/coding-agent/src/akasha-entry-cli.ts`
+- `packages/coding-agent/src/core/akasha/preset.ts`
+- `packages/coding-agent/src/core/settings-manager.ts`
+- `packages/coding-agent/src/core/akasha/commands.ts`
+- `packages/coding-agent/package.json`
+- `packages/coding-agent/docs/akasha.md`
+- `packages/coding-agent/docs/settings.md`
+- `packages/coding-agent/README.md`
+- `packages/coding-agent/test/akasha-entry-cli.test.ts`
+- `packages/coding-agent/test/settings-manager.test.ts`
 
 建议第一批命令：
 
-- `/akasha queue`
-- `/akasha callback-complete <callbackId> [evidenceEventId]`
-- `/akasha callback-cancel <callbackId> [reason]`
-- `/akasha maintain [session|project|all]`
+- `akasha init [--global]`
+- `akasha enable [--global]`
+- `akasha status`
+- `/akasha init [global]`
+- `/akasha enable [global]`
 
 建议第一批验收：
 
-- Action Gate 注入后，timeline 里出现 `action_gate.injected`，并能追踪 supporting event ids。
-- `require_validation` 返回验证计划并阻断扩大修改，而不是普通无语义 block。
-- scheduled callback 到期后由 daemon pass 推进为 due callback，完成或取消后不再重复 due。
-- 两个 store 实例使用同一 sourceKey append 时，最终只写入一个事件。
+- `akasha init` 能生成 Akasha preset。
+- `akasha status` 能看到 enabled/action gate/tool gate/maintenance 状态。
+- `npm --prefix packages/coding-agent run build` 后 `dist/akasha-cli.js` 可执行。
+- `pi` 原入口、help 和现有 session 流程不回归。

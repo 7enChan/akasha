@@ -10,6 +10,7 @@ import { createInterface } from "node:readline";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
 import { ProcessTerminal, setKeybindings, TUI } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { handleAkashaEntrypointCommand } from "./akasha-entry-cli.js";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.js";
 import { processFileArguments } from "./cli/file-processor.js";
 import { buildInitialMessage } from "./cli/initial-message.js";
@@ -428,6 +429,10 @@ export async function main(args: string[], options?: MainOptions) {
 		process.env.PI_SKIP_VERSION_CHECK = "1";
 	}
 
+	if (await handleAkashaEntrypointCommand(args, process.cwd())) {
+		return;
+	}
+
 	if (await handlePackageCommand(args)) {
 		return;
 	}
@@ -493,7 +498,9 @@ export async function main(args: string[], options?: MainOptions) {
 	// settings, resources, provider registrations, and models must be resolved only after
 	// the target session cwd is known. The startup-cwd settings manager is used only for
 	// sessionDir lookup during session selection.
-	const envSessionDir = process.env[ENV_SESSION_DIR];
+	const envSessionDir =
+		process.env[ENV_SESSION_DIR] ??
+		(process.env.PI_AKASHA_ENTRYPOINT === "1" ? process.env.PI_CODING_AGENT_SESSION_DIR : undefined);
 	const sessionDir =
 		parsed.sessionDir ??
 		(envSessionDir ? expandTildePath(envSessionDir) : undefined) ??

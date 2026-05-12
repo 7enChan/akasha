@@ -24,6 +24,10 @@
           "path": "settings.md"
         },
         {
+          "title": "Akasha",
+          "path": "akasha.md"
+        },
+        {
           "title": "Keybindings",
           "path": "keybindings.md"
         },

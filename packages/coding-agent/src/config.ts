@@ -417,9 +417,10 @@ interface PackageJson {
 const pkg = JSON.parse(readFileSync(getPackageJsonPath(), "utf-8")) as PackageJson;
 
 const piConfigName: string | undefined = pkg.piConfig?.name;
+export const IS_AKASHA_ENTRYPOINT = process.env.PI_AKASHA_ENTRYPOINT === "1";
 export const PACKAGE_NAME: string = pkg.name || "@earendil-works/pi-coding-agent";
-export const APP_NAME: string = piConfigName || "pi";
-export const APP_TITLE: string = piConfigName ? APP_NAME : "π";
+export const APP_NAME: string = IS_AKASHA_ENTRYPOINT ? "akasha" : piConfigName || "pi";
+export const APP_TITLE: string = IS_AKASHA_ENTRYPOINT ? "Akasha" : piConfigName ? APP_NAME : "π";
 export const CONFIG_DIR_NAME: string = pkg.piConfig?.configDir || ".pi";
 export const VERSION: string = pkg.version || "0.0.0";
 
@@ -447,7 +448,7 @@ export function getShareViewerUrl(gistId: string): string {
 
 /** Get the agent config directory (e.g., ~/.pi/agent/) */
 export function getAgentDir(): string {
-	const envDir = process.env[ENV_AGENT_DIR];
+	const envDir = process.env[ENV_AGENT_DIR] ?? (IS_AKASHA_ENTRYPOINT ? process.env.PI_CODING_AGENT_DIR : undefined);
 	if (envDir) {
 		return expandTildePath(envDir);
 	}
