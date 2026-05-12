@@ -373,6 +373,26 @@ agent proposes
 - `/akasha task-model` 能输出当前目标、任务、决策与风险，且全部可从 JSONL 重建。
 - temporal recall 会优先保留 due callback、非 allow policy、blocked tool、未验证文件等关键时间事实。
 
+## M13：Temporal Kernel 与可审计运行时
+
+**目标：** 把 M10-M12 的多个时间模块收束成一个更接近 Time OS 的运行时切片：有统一内核入口、可审计行动前上下文、可执行策略语义、完整 callback 生命周期和更可靠的事件日志写入。
+
+**核心能力：**
+
+- Temporal Kernel Facade：新增 `AkashaTemporalKernel`，集中 append、state projection、action context、policy evaluation、daemon pass、callback complete/cancel 等入口。
+- Auditable Action Gate：新增 `action_gate.injected` 事件，记录 hidden action gate 的 source event ids、sections、content hash 和 token estimate。
+- Executable Policy Semantics：`require_validation` 不再只是普通 block，而会携带 validation plan；`defer` 写入 scheduled callback；confirmation 语义保留为显式确认要求。
+- Callback Lifecycle：补齐 `time.callback.scheduled`、`time.callback.due`、`time.callback.completed`、`time.callback.cancelled`，并提供 slash command 完成/取消 callback。
+- Safer JSONL Store：append 时加 lock、锁内 reload、sourceKey 再去重、严格校验新事件后写入。
+
+**退出标准：**
+
+- collector 的 action context 与 policy 关键路径通过 Temporal Kernel。
+- 每次 Action Gate hidden context 注入都能找到对应 `action_gate.injected` 审计事件。
+- daemon maintenance 能为未来 promise/prediction 写入 scheduled callback，并在到期时写入 due callback。
+- `/akasha callback-complete <callbackId>` 与 `/akasha callback-cancel <callbackId>` 能关闭 callback 生命周期。
+- JSONL store 在多实例 append 同一 sourceKey 时不会重复写入，且非法新事件会被拒绝。
+
 ## 阶段依赖图
 
 ```text
@@ -391,6 +411,7 @@ M0 Event Ontology
 	                      -> M10 Time OS Control Plane
 	                        -> M11 Runtime Enforcement / Governance
 	                          -> M12 Policy Kernel / Daemon Queue / Task Model
+	                            -> M13 Temporal Kernel / Auditable Runtime
 ```
 
 ## 每阶段通用质量门槛
@@ -405,34 +426,39 @@ M0 Event Ontology
 
 ## 当前优先级
 
-当前已进入 **M12 Policy Kernel / Daemon Queue / Task Model** 切片。原因是：M11 已经具备硬门控、离线维护和记忆治理，下一步要把这些能力统一进策略内核、时间回调队列和类型化任务投影。
+当前已进入 **M13 Temporal Kernel / Auditable Runtime** 切片。原因是：M12 已经形成 policy、daemon queue 和 typed task model，但这些模块仍然偏松散，下一步要收束成可审计、可维护、可执行的时间运行时。
 
 推荐下一轮开发标题：
 
 ```text
-Akasha M12: Policy Kernel, Daemon Queue, and Typed Task Model
+Akasha M13: Temporal Kernel and Auditable Runtime
 ```
 
 建议第一批文件边界：
 
-- `packages/coding-agent/src/core/akasha/policy-kernel.ts`
+- `packages/coding-agent/src/core/akasha/temporal-kernel.ts`
+- `packages/coding-agent/src/core/akasha/action-gate.ts`
 - `packages/coding-agent/src/core/akasha/daemon-queue.ts`
-- `packages/coding-agent/src/core/akasha/task-model.ts`
+- `packages/coding-agent/src/core/akasha/jsonl-store.ts`
+- `packages/coding-agent/src/core/akasha/schema.ts`
+- `packages/coding-agent/src/core/akasha/policy-kernel.ts`
 - `packages/coding-agent/src/core/akasha/tool-gate.ts`
-- `packages/coding-agent/src/core/akasha/maintenance-runner.ts`
-- `packages/coding-agent/test/akasha-policy-kernel.test.ts`
+- `packages/coding-agent/src/core/akasha/collector-extension.ts`
+- `packages/coding-agent/test/akasha-temporal-kernel.test.ts`
 - `packages/coding-agent/test/akasha-daemon-queue.test.ts`
-- `packages/coding-agent/test/akasha-task-model.test.ts`
+- `packages/coding-agent/test/akasha-store.test.ts`
+- `packages/coding-agent/test/akasha-policy-kernel.test.ts`
 
 建议第一批命令：
 
 - `/akasha queue`
-- `/akasha task-model`
+- `/akasha callback-complete <callbackId> [evidenceEventId]`
+- `/akasha callback-cancel <callbackId> [reason]`
 - `/akasha maintain [session|project|all]`
 
 建议第一批验收：
 
-- destructive command 和 unverified artifact widening 都能通过 Policy Kernel 返回可解释策略。
-- `/akasha queue` 能列出 due callback，但不写入事件流。
-- `/akasha maintain session` 能写入 `daemon.tick` 和 `time.callback.due`。
-- `/akasha task-model` 能把目标、任务、决策、风险从事件流重建出来。
+- Action Gate 注入后，timeline 里出现 `action_gate.injected`，并能追踪 supporting event ids。
+- `require_validation` 返回验证计划并阻断扩大修改，而不是普通无语义 block。
+- scheduled callback 到期后由 daemon pass 推进为 due callback，完成或取消后不再重复 due。
+- 两个 store 实例使用同一 sourceKey append 时，最终只写入一个事件。

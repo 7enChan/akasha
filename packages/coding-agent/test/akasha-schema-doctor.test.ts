@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildAkashaDoctorReport } from "../src/core/akasha/doctor.js";
 import { JsonlAkashaStore } from "../src/core/akasha/jsonl-store.js";
-import { parseAkashaJsonl } from "../src/core/akasha/schema.js";
+import { parseAkashaJsonl, validateAkashaEventStrict } from "../src/core/akasha/schema.js";
 
 describe("Akasha schema and doctor", () => {
 	let tempDir: string;
@@ -63,5 +63,34 @@ describe("Akasha schema and doctor", () => {
 			schemaIssueCount: 1,
 			redactionCount: 0,
 		});
+	});
+
+	it("strict validation rejects unknown kinds and invalid callback payloads", () => {
+		const base = {
+			eventId: "evt-1",
+			kind: "time.callback.due" as const,
+			sessionId: "session-1",
+			streamId: "session:session-1",
+			sequence: 1,
+			eventTime: "2026-05-11T00:00:00.000Z",
+			recordedTime: "2026-05-11T00:00:00.000Z",
+			actor: "system" as const,
+			parentEventIds: [],
+			payload: {},
+			importance: 0.5,
+			ttlPolicy: "long_term" as const,
+			version: 1 as const,
+		};
+
+		expect(validateAkashaEventStrict(base).map((issue) => issue.message)).toContain(
+			"time.callback.due requires payload.callbackId",
+		);
+		expect(
+			validateAkashaEventStrict({
+				...base,
+				kind: "unknown.kind" as typeof base.kind,
+				payload: { callbackId: "callback-1" },
+			}).map((issue) => issue.message),
+		).toContain("Unknown Akasha event kind: unknown.kind");
 	});
 });

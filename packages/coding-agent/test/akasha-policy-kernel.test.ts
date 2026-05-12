@@ -59,6 +59,34 @@ describe("Akasha policy kernel", () => {
 			action: "require_validation",
 			ruleId: "unverified_artifact_widening",
 			evidenceEventIds: ["evt-1"],
+			validationPlan: {
+				evidenceEventIds: ["evt-1"],
+			},
+		});
+		expect(decision.validationPlan?.recommendedCommands).toContain("npm test");
+	});
+
+	it("can defer actions with a concrete callback schedule", () => {
+		const decision = evaluateAkashaPolicy({
+			actionType: "tool_call",
+			subject: "write",
+			now: new Date("2026-05-12T00:00:00.000Z"),
+			payload: {
+				dueTime: "2026-05-13T00:00:00.000Z",
+				summary: "Resume after user confirmation",
+				targetEventId: "evt-target",
+			},
+			rules: [{ id: "defer_until_callback", description: "Defer until callback", severity: "warning" }],
+		});
+
+		expect(decision).toMatchObject({
+			action: "defer",
+			ruleId: "defer_until_callback",
+			callback: {
+				dueTime: "2026-05-13T00:00:00.000Z",
+				summary: "Resume after user confirmation",
+				targetEventId: "evt-target",
+			},
 		});
 	});
 });

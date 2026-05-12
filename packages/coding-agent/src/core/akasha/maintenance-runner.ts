@@ -72,6 +72,7 @@ export async function runAkashaDetachedMaintenance(
 				result.schedulerEvents.length +
 				reflectionCount +
 				1 +
+				daemon.scheduledCallbacks.length +
 				daemon.dueCallbacks.length;
 			results.push({
 				sessionId: session.sessionId,

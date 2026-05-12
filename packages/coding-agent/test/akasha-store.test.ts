@@ -54,6 +54,29 @@ describe("JsonlAkashaStore", () => {
 		expect(store.listRecent({ limit: 10 })).toHaveLength(1);
 	});
 
+	it("deduplicates sourceKey across store instances by reloading under lock", () => {
+		const firstStore = new JsonlAkashaStore(logPath);
+		const secondStore = new JsonlAkashaStore(logPath);
+		const first = firstStore.append(draft({ sourceKey: "cross-process-source" }));
+		const duplicate = secondStore.append(draft({ kind: "turn.started", sourceKey: "cross-process-source" }));
+
+		expect(duplicate.eventId).toBe(first.eventId);
+		expect(new JsonlAkashaStore(logPath).listRecent({ limit: 10 })).toHaveLength(1);
+	});
+
+	it("rejects invalid new events during strict append validation", () => {
+		const store = new JsonlAkashaStore(logPath);
+
+		expect(() =>
+			store.append(
+				draft({
+					kind: "not.real" as AkashaEventDraft["kind"],
+					sourceKey: "bad-kind",
+				}),
+			),
+		).toThrow("Unknown Akasha event kind");
+	});
+
 	it("traverses causal chains from root to target", () => {
 		const store = new JsonlAkashaStore(logPath);
 		const root = store.append(draft({ kind: "message.user.submitted", actor: "user" }));

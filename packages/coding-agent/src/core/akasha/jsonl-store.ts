@@ -1,9 +1,23 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import {
+	closeSync,
+	existsSync,
+	fsyncSync,
+	mkdirSync,
+	openSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeSync,
+} from "node:fs";
 import { dirname } from "node:path";
 import { v7 as uuidv7 } from "uuid";
-import { parseAkashaJsonl } from "./schema.js";
+import { assertAkashaEventStrict, parseAkashaJsonl } from "./schema.js";
 import { sanitizeAkashaEventDraft } from "./sensitive-data.js";
 import type { AkashaEvent, AkashaEventDraft, AkashaQuery, AkashaStore } from "./types.js";
+
+const LOCK_STALE_MS = 30_000;
+const LOCK_RETRY_MS = 10;
+const LOCK_MAX_ATTEMPTS = 200;
 
 function matchesText(event: AkashaEvent, text: string): boolean {
 	const needle = text.trim().toLowerCase();
@@ -35,6 +49,10 @@ export class JsonlAkashaStore implements AkashaStore {
 	}
 
 	private load(): void {
+		this.events = [];
+		this.byId.clear();
+		this.bySourceKey.clear();
+		this.lastSequence = 0;
 		if (!existsSync(this.eventLogPath)) return;
 
 		const content = readFileSync(this.eventLogPath, "utf-8");
@@ -55,29 +73,33 @@ export class JsonlAkashaStore implements AkashaStore {
 	}
 
 	append(draft: AkashaEventDraft): AkashaEvent {
-		if (draft.sourceKey) {
-			const existing = this.bySourceKey.get(draft.sourceKey);
-			if (existing) return existing;
-		}
+		return withFileLock(`${this.eventLogPath}.lock`, () => {
+			this.load();
+			if (draft.sourceKey) {
+				const existing = this.bySourceKey.get(draft.sourceKey);
+				if (existing) return existing;
+			}
 
-		const safeDraft = this.redactSecrets ? sanitizeAkashaEventDraft(draft) : draft;
-		const now = new Date().toISOString();
-		const event: AkashaEvent = {
-			...safeDraft,
-			eventId: safeDraft.eventId ?? uuidv7(),
-			sequence: safeDraft.sequence ?? this.lastSequence + 1,
-			recordedTime: safeDraft.recordedTime ?? now,
-			parentEventIds: safeDraft.parentEventIds ?? [],
-			payload: safeDraft.payload ?? {},
-			importance: safeDraft.importance ?? 0.5,
-			ttlPolicy: safeDraft.ttlPolicy ?? "session",
-			version: 1,
-		};
+			const safeDraft = this.redactSecrets ? sanitizeAkashaEventDraft(draft) : draft;
+			const now = new Date().toISOString();
+			const event: AkashaEvent = {
+				...safeDraft,
+				eventId: safeDraft.eventId ?? uuidv7(),
+				sequence: safeDraft.sequence ?? this.lastSequence + 1,
+				recordedTime: safeDraft.recordedTime ?? now,
+				parentEventIds: safeDraft.parentEventIds ?? [],
+				payload: safeDraft.payload ?? {},
+				importance: safeDraft.importance ?? 0.5,
+				ttlPolicy: safeDraft.ttlPolicy ?? "session",
+				version: 1,
+			};
+			assertAkashaEventStrict(event);
 
-		this.events.push(event);
-		this.indexEvent(event);
-		appendFileSync(this.eventLogPath, `${JSON.stringify(event)}\n`, "utf-8");
-		return event;
+			this.events.push(event);
+			this.indexEvent(event);
+			appendLineDurably(this.eventLogPath, JSON.stringify(event));
+			return event;
+		});
 	}
 
 	listRecent(query: AkashaQuery = {}): AkashaEvent[] {
@@ -138,5 +160,59 @@ export class JsonlAkashaStore implements AkashaStore {
 
 	getSchemaIssueCount(): number {
 		return this.schemaIssues;
+	}
+}
+
+function withFileLock<T>(lockPath: string, fn: () => T): T {
+	const fd = acquireFileLock(lockPath);
+	try {
+		return fn();
+	} finally {
+		closeSync(fd);
+		rmSync(lockPath, { force: true });
+	}
+}
+
+function acquireFileLock(lockPath: string): number {
+	for (let attempt = 0; attempt < LOCK_MAX_ATTEMPTS; attempt++) {
+		try {
+			return openSync(lockPath, "wx");
+		} catch (error) {
+			if (!isFileExistsError(error)) throw error;
+			removeStaleLock(lockPath);
+			sleepSync(LOCK_RETRY_MS);
+		}
+	}
+	throw new Error(`Timed out acquiring Akasha event log lock: ${lockPath}`);
+}
+
+function removeStaleLock(lockPath: string): void {
+	try {
+		const ageMs = Date.now() - statSync(lockPath).mtimeMs;
+		if (ageMs > LOCK_STALE_MS) rmSync(lockPath, { force: true });
+	} catch (error) {
+		if (!isMissingFileError(error)) throw error;
+	}
+}
+
+function isFileExistsError(error: unknown): boolean {
+	return typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST";
+}
+
+function isMissingFileError(error: unknown): boolean {
+	return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+}
+
+function sleepSync(ms: number): void {
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function appendLineDurably(path: string, line: string): void {
+	const fd = openSync(path, "a");
+	try {
+		writeSync(fd, `${line}\n`, undefined, "utf-8");
+		fsyncSync(fd);
+	} finally {
+		closeSync(fd);
 	}
 }

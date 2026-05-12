@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "../extensions/types.js";
 import type { ResolvedAkashaReflectionSettings } from "../settings-manager.js";
 import { buildAkashaActionGateContext } from "./action-gate.js";
 import type { AkashaDaemonQueueItem } from "./daemon-queue.js";
-import { buildAkashaDaemonQueue } from "./daemon-queue.js";
+import { buildAkashaDaemonQueue, markAkashaCallbackCancelled, markAkashaCallbackCompleted } from "./daemon-queue.js";
 import type { AkashaDoctorReport } from "./doctor.js";
 import { buildAkashaDoctorReport } from "./doctor.js";
 import { JsonlAkashaStore } from "./jsonl-store.js";
@@ -41,7 +41,7 @@ export function registerAkashaCommands(
 ): void {
 	pi.registerCommand("akasha", {
 		description:
-			"Inspect Akasha time events: /akasha status | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
+			"Inspect Akasha time events: /akasha status | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | callback-complete <callbackId> [evidenceEventId] | callback-cancel <callbackId> [reason] | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
 		getArgumentCompletions: (prefix) => {
 			const commands = [
 				"status",
@@ -50,6 +50,8 @@ export function registerAkashaCommands(
 				"user-timeline",
 				"action-gate",
 				"queue",
+				"callback-complete",
+				"callback-cancel",
 				"maintain",
 				"memory-review",
 				"memory-pin",
@@ -172,6 +174,33 @@ export function registerAkashaCommands(
 					),
 					"info",
 				);
+				return;
+			}
+
+			if (subcommand === "callback-complete") {
+				const callbackId = rest[0];
+				if (!callbackId) {
+					ctx.ui.notify("Usage: /akasha callback-complete <callbackId> [evidenceEventId]", "warning");
+					return;
+				}
+				const evidenceEventId = rest[1];
+				const event = markAkashaCallbackCompleted(store, callbackId, {
+					evidenceEventId,
+					reason: "user_completed",
+				});
+				ctx.ui.notify(`Callback completed: ${callbackId} -> ${event.eventId}`, "info");
+				return;
+			}
+
+			if (subcommand === "callback-cancel") {
+				const callbackId = rest[0];
+				if (!callbackId) {
+					ctx.ui.notify("Usage: /akasha callback-cancel <callbackId> [reason]", "warning");
+					return;
+				}
+				const reason = rest.slice(1).join(" ") || "user_cancelled";
+				const event = markAkashaCallbackCancelled(store, callbackId, { reason });
+				ctx.ui.notify(`Callback cancelled: ${callbackId} -> ${event.eventId}`, "info");
 				return;
 			}
 
@@ -354,7 +383,7 @@ export function registerAkashaCommands(
 			}
 
 			ctx.ui.notify(
-				"Usage: /akasha status | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
+				"Usage: /akasha status | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | callback-complete <callbackId> [evidenceEventId] | callback-cancel <callbackId> [reason] | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
 				"warning",
 			);
 		},

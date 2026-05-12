@@ -2,6 +2,63 @@ import type { AkashaActor, AkashaEvent, AkashaEventKind, AkashaTtlPolicy } from 
 
 export const CURRENT_AKASHA_EVENT_VERSION = 1 as const;
 
+export const KNOWN_AKASHA_EVENT_KINDS = new Set<AkashaEventKind>([
+	"session.started",
+	"session.resumed",
+	"session.forked",
+	"session.reloaded",
+	"session.shutdown",
+	"turn.started",
+	"turn.completed",
+	"action_gate.injected",
+	"policy.evaluated",
+	"daemon.tick",
+	"time.callback.scheduled",
+	"time.callback.due",
+	"time.callback.completed",
+	"time.callback.cancelled",
+	"message.user.submitted",
+	"message.agent.completed",
+	"message.tool_result.recorded",
+	"message.custom.recorded",
+	"tool.requested",
+	"tool.blocked",
+	"tool.completed",
+	"artifact.read",
+	"artifact.written",
+	"artifact.patched",
+	"command.executed",
+	"context.compacted",
+	"branch.summary_created",
+	"model.changed",
+	"thinking_level.changed",
+	"loop.opened",
+	"loop.progressed",
+	"loop.blocked",
+	"loop.resolved",
+	"promise.created",
+	"promise.updated",
+	"promise.resolved",
+	"prediction.made",
+	"prediction.checked",
+	"prediction.corrected",
+	"reflection.started",
+	"reflection.completed",
+	"memory.pinned",
+	"memory.unpinned",
+	"memory.suppressed",
+	"memory.crystal.created",
+	"memory.crystal.updated",
+	"pattern.detected",
+	"preference.inferred",
+	"failure.lesson_learned",
+	"workflow.optimized",
+	"event.redacted",
+]);
+
+const KNOWN_AKASHA_ACTORS = new Set<AkashaActor>(["user", "agent", "tool", "system"]);
+const KNOWN_POLICY_ACTIONS = new Set(["allow", "block", "require_confirmation", "require_validation", "defer"]);
+
 export interface AkashaSchemaIssue {
 	line?: number;
 	eventId?: string;
@@ -90,6 +147,42 @@ export function validateAkashaEvent(value: unknown): value is AkashaEvent {
 	return migrateAkashaEvent(value) !== undefined;
 }
 
+export function validateAkashaEventStrict(event: AkashaEvent): AkashaSchemaIssue[] {
+	const issues: AkashaSchemaIssue[] = [];
+	if (!KNOWN_AKASHA_EVENT_KINDS.has(event.kind)) {
+		issues.push(issue(event.eventId, "invalid_shape", `Unknown Akasha event kind: ${event.kind}`));
+	}
+	if (!KNOWN_AKASHA_ACTORS.has(event.actor)) {
+		issues.push(issue(event.eventId, "invalid_shape", `Unknown Akasha actor: ${event.actor}`));
+	}
+	if (!isTtlPolicy(event.ttlPolicy)) {
+		issues.push(issue(event.eventId, "invalid_shape", `Unknown Akasha TTL policy: ${event.ttlPolicy}`));
+	}
+	if (!Number.isInteger(event.sequence) || event.sequence <= 0) {
+		issues.push(issue(event.eventId, "invalid_shape", "Akasha event sequence must be a positive integer"));
+	}
+	if (!isIsoDateString(event.eventTime)) {
+		issues.push(issue(event.eventId, "invalid_shape", "Akasha eventTime must be parseable"));
+	}
+	if (!isIsoDateString(event.recordedTime)) {
+		issues.push(issue(event.eventId, "invalid_shape", "Akasha recordedTime must be parseable"));
+	}
+	if (!Number.isFinite(event.importance) || event.importance < 0 || event.importance > 1) {
+		issues.push(issue(event.eventId, "invalid_shape", "Akasha importance must be between 0 and 1"));
+	}
+	if (!Array.isArray(event.parentEventIds) || event.parentEventIds.some((id) => typeof id !== "string")) {
+		issues.push(issue(event.eventId, "invalid_shape", "Akasha parentEventIds must be strings"));
+	}
+	validatePayloadShape(event, issues);
+	return issues;
+}
+
+export function assertAkashaEventStrict(event: AkashaEvent): void {
+	const issues = validateAkashaEventStrict(event);
+	if (issues.length === 0) return;
+	throw new Error(`Invalid Akasha event ${event.eventId}: ${issues.map((item) => item.message).join("; ")}`);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -102,4 +195,50 @@ function isTtlPolicy(value: unknown): value is AkashaTtlPolicy {
 		value === "long_term" ||
 		value === "permanent"
 	);
+}
+
+function isIsoDateString(value: string): boolean {
+	return Number.isFinite(Date.parse(value));
+}
+
+function issue(eventId: string | undefined, code: AkashaSchemaIssue["code"], message: string): AkashaSchemaIssue {
+	return { eventId, code, message };
+}
+
+function validatePayloadShape(event: AkashaEvent, issues: AkashaSchemaIssue[]): void {
+	if (!isRecord(event.payload)) {
+		issues.push(issue(event.eventId, "invalid_shape", "Akasha payload must be an object"));
+		return;
+	}
+	if (
+		(event.kind === "time.callback.scheduled" ||
+			event.kind === "time.callback.due" ||
+			event.kind === "time.callback.completed" ||
+			event.kind === "time.callback.cancelled") &&
+		typeof event.payload.callbackId !== "string"
+	) {
+		issues.push(issue(event.eventId, "invalid_shape", `${event.kind} requires payload.callbackId`));
+	}
+	if (event.kind === "policy.evaluated") {
+		const action = event.payload.action ?? event.payload.decision;
+		if (typeof action !== "string" || !KNOWN_POLICY_ACTIONS.has(action)) {
+			issues.push(issue(event.eventId, "invalid_shape", "policy.evaluated requires a valid action"));
+		}
+	}
+	if (event.kind === "promise.created") {
+		if (typeof event.payload.promiseId !== "string") {
+			issues.push(issue(event.eventId, "invalid_shape", "promise.created requires payload.promiseId"));
+		}
+		if (typeof event.payload.summary !== "string") {
+			issues.push(issue(event.eventId, "invalid_shape", "promise.created requires payload.summary"));
+		}
+	}
+	if (event.kind === "prediction.made") {
+		if (typeof event.payload.predictionId !== "string") {
+			issues.push(issue(event.eventId, "invalid_shape", "prediction.made requires payload.predictionId"));
+		}
+		if (typeof event.payload.claim !== "string") {
+			issues.push(issue(event.eventId, "invalid_shape", "prediction.made requires payload.claim"));
+		}
+	}
 }

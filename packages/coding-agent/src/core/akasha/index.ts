@@ -13,12 +13,19 @@ export {
 export type { AkashaCrystalPayload } from "./crystals.js";
 export { createCrystalDrafts, toMemoryCrystalDraft } from "./crystals.js";
 export type {
+	AkashaCallbackDraftOptions,
 	AkashaCallbackKind,
 	AkashaDaemonQueueItem,
 	AkashaDaemonQueueOptions,
 	AkashaDaemonQueuePassResult,
 } from "./daemon-queue.js";
-export { buildAkashaDaemonQueue, runAkashaDaemonQueuePass } from "./daemon-queue.js";
+export {
+	buildAkashaDaemonQueue,
+	createCallbackScheduledDraft,
+	markAkashaCallbackCancelled,
+	markAkashaCallbackCompleted,
+	runAkashaDaemonQueuePass,
+} from "./daemon-queue.js";
 export type { AkashaDoctorReport } from "./doctor.js";
 export { buildAkashaDoctorReport } from "./doctor.js";
 export type { AkashaEmbeddingIndexOptions, AkashaEmbeddingIndexResult } from "./embedding-indexer.js";
@@ -131,6 +138,13 @@ export type {
 	AkashaTaskState,
 } from "./task-model.js";
 export { buildAkashaTaskModel } from "./task-model.js";
+export type {
+	AkashaActionContextBuildOptions,
+	AkashaActionContextBuildResult,
+	AkashaTemporalKernelOptions,
+	AkashaTemporalStateSnapshot,
+} from "./temporal-kernel.js";
+export { AkashaTemporalKernel, createAkashaTemporalKernel, hashText } from "./temporal-kernel.js";
 export type { AkashaTemporalRagMatch, AkashaTemporalRagOptions, AkashaTemporalRagResult } from "./temporal-rag.js";
 export { retrieveTemporalContext } from "./temporal-rag.js";
 export type {

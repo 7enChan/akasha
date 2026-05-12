@@ -2,7 +2,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildAkashaDaemonQueue, runAkashaDaemonQueuePass } from "../src/core/akasha/daemon-queue.js";
+import {
+	buildAkashaDaemonQueue,
+	markAkashaCallbackCancelled,
+	markAkashaCallbackCompleted,
+	runAkashaDaemonQueuePass,
+} from "../src/core/akasha/daemon-queue.js";
 import { JsonlAkashaStore } from "../src/core/akasha/jsonl-store.js";
 import type { AkashaEvent } from "../src/core/akasha/types.js";
 
@@ -67,6 +72,72 @@ describe("Akasha daemon queue", () => {
 		expect(store.buildTimeline({ limit: 20 }).map((item) => item.kind)).toEqual(
 			expect.arrayContaining(["daemon.tick", "time.callback.due"]),
 		);
+	});
+
+	it("schedules future callbacks and advances them to due only once", () => {
+		const store = new JsonlAkashaStore(join(tempDir, "events.jsonl"));
+		store.append({
+			kind: "promise.created",
+			sessionId: "session-1",
+			streamId: "session:session-1",
+			eventTime: "2026-05-11T00:00:00.000Z",
+			actor: "agent",
+			payload: {
+				promiseId: "promise-future",
+				summary: "Check the build tomorrow",
+				dueTime: "2026-05-13T00:00:00.000Z",
+			},
+			ttlPolicy: "long_term",
+		});
+
+		const scheduled = runAkashaDaemonQueuePass(store, {
+			now: new Date("2026-05-12T00:00:00.000Z"),
+			reflection: reflectionOff(),
+		});
+		const due = runAkashaDaemonQueuePass(store, {
+			now: new Date("2026-05-13T00:01:00.000Z"),
+			reflection: reflectionOff(),
+		});
+		const duplicateDue = runAkashaDaemonQueuePass(store, {
+			now: new Date("2026-05-13T00:02:00.000Z"),
+			reflection: reflectionOff(),
+		});
+
+		expect(scheduled.scheduledCallbacks).toHaveLength(1);
+		expect(due.dueCallbacks).toHaveLength(1);
+		expect(duplicateDue.dueCallbacks).toHaveLength(0);
+		expect(store.buildTimeline({ limit: 50 }).map((item) => item.kind)).toEqual(
+			expect.arrayContaining(["time.callback.scheduled", "time.callback.due"]),
+		);
+	});
+
+	it("completes and cancels callbacks as terminal lifecycle events", () => {
+		const store = new JsonlAkashaStore(join(tempDir, "events.jsonl"));
+		store.append({
+			kind: "time.callback.due",
+			sessionId: "session-1",
+			streamId: "session:session-1",
+			eventTime: "2026-05-12T00:00:00.000Z",
+			actor: "system",
+			payload: {
+				callbackId: "callback-1",
+				kind: "scheduled_callback",
+				dueTime: "2026-05-12T00:00:00.000Z",
+				summary: "Follow up",
+			},
+			ttlPolicy: "long_term",
+		});
+
+		const completed = markAkashaCallbackCompleted(store, "callback-1", {
+			evidenceEventId: "evt-evidence",
+			reason: "verified",
+		});
+		const cancelled = markAkashaCallbackCancelled(store, "callback-2", { reason: "obsolete" });
+
+		expect(completed.kind).toBe("time.callback.completed");
+		expect(completed.payload).toMatchObject({ callbackId: "callback-1", evidenceEventId: "evt-evidence" });
+		expect(cancelled.kind).toBe("time.callback.cancelled");
+		expect(cancelled.payload).toMatchObject({ callbackId: "callback-2", reason: "obsolete" });
 	});
 });
 

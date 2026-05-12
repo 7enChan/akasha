@@ -8,6 +8,19 @@ export interface AkashaPolicyRule {
 	severity: "info" | "warning" | "critical";
 }
 
+export interface AkashaValidationPlan {
+	reason: string;
+	recommendedCommands: string[];
+	evidenceEventIds: string[];
+}
+
+export interface AkashaPolicyCallbackSchedule {
+	callbackId: string;
+	dueTime: string;
+	summary: string;
+	targetEventId?: string;
+}
+
 export interface AkashaPolicyEvaluationInput {
 	actionType: string;
 	subject?: string;
@@ -15,6 +28,7 @@ export interface AkashaPolicyEvaluationInput {
 	payload?: Record<string, unknown>;
 	evidenceEvents?: AkashaEvent[];
 	rules?: AkashaPolicyRule[];
+	now?: Date;
 }
 
 export interface AkashaPolicyDecision {
@@ -23,6 +37,9 @@ export interface AkashaPolicyDecision {
 	severity: "info" | "warning" | "critical";
 	reason: string;
 	evidenceEventIds: string[];
+	validationPlan?: AkashaValidationPlan;
+	confirmationPrompt?: string;
+	callback?: AkashaPolicyCallbackSchedule;
 }
 
 export function evaluateAkashaPolicy(input: AkashaPolicyEvaluationInput): AkashaPolicyDecision {
@@ -51,6 +68,9 @@ export function createPolicyEvaluatedPayload(
 		severity: decision.severity,
 		reason: decision.reason,
 		evidenceEventIds: decision.evidenceEventIds,
+		validationPlan: decision.validationPlan,
+		confirmationPrompt: decision.confirmationPrompt,
+		callback: decision.callback,
 	};
 }
 
@@ -63,12 +83,38 @@ function evaluateRule(input: AkashaPolicyEvaluationInput, rule: AkashaPolicyRule
 	if (rule.id === "unverified_artifact_widening") {
 		const unverified = input.evidenceEvents ?? [];
 		if (unverified.length > 0) {
-			return decision(
-				"require_validation",
-				rule,
-				"Akasha requires validation before editing another artifact because previous modifications remain unverified.",
-				unverified.map((event) => event.eventId),
-			);
+			const evidenceEventIds = unverified.map((event) => event.eventId);
+			return {
+				...decision(
+					"require_validation",
+					rule,
+					"Akasha requires validation before editing another artifact because previous modifications remain unverified.",
+					evidenceEventIds,
+				),
+				validationPlan: {
+					reason: "Validate the current modified artifact chain before widening edits.",
+					recommendedCommands: ["npm test", "npm run build"],
+					evidenceEventIds,
+				},
+			};
+		}
+	}
+
+	if (rule.id === "defer_until_callback") {
+		const dueTime = typeof input.payload?.dueTime === "string" ? input.payload.dueTime : undefined;
+		const summary = typeof input.payload?.summary === "string" ? input.payload.summary : undefined;
+		if (dueTime && summary) {
+			const now = input.now ?? new Date();
+			return {
+				...decision("defer", rule, `Akasha deferred this action until ${dueTime}: ${summary}`, []),
+				callback: {
+					callbackId: `policy:${input.subject ?? "action"}:${now.toISOString()}`,
+					dueTime,
+					summary,
+					targetEventId:
+						typeof input.payload?.targetEventId === "string" ? input.payload.targetEventId : undefined,
+				},
+			};
 		}
 	}
 

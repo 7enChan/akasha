@@ -18,7 +18,6 @@ import type {
 	ResolvedAkashaSettings,
 } from "../settings-manager.js";
 import { deriveAccountabilityEventsFromAssistant } from "./accountability-extractor.js";
-import { buildAkashaActionGateContext } from "./action-gate.js";
 import { buildTemporalBrief, buildTemporalBriefWithEmbeddings } from "./brief.js";
 import { registerAkashaCommands } from "./commands.js";
 import { createAkashaEmbeddingProvider } from "./embedding-provider.js";
@@ -36,10 +35,8 @@ import {
 	truncateText,
 } from "./mapper.js";
 import { deriveOpenLoopEvents } from "./open-loops.js";
-import { buildAkashaProjectTimeline } from "./project-timeline.js";
-import { evaluateAkashaToolGate } from "./tool-gate.js";
+import { createAkashaTemporalKernel } from "./temporal-kernel.js";
 import type { AkashaEvent, AkashaEventDraft, AkashaEventKind, AkashaStore } from "./types.js";
-import { buildAkashaUserTimeline } from "./user-timeline.js";
 
 const BUILT_IN_PATH = "<built-in:akasha>";
 
@@ -105,6 +102,18 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			`akasha:${sessionId ?? "unknown"}:${agentRunId}:${scope}:${++sourceCounter}`;
 
 		const getStore = (): AkashaStore | undefined => store;
+
+		const createKernel = () => {
+			if (!store || !sessionId) return undefined;
+			return createAkashaTemporalKernel({
+				store,
+				sessionId,
+				streamId,
+				agentDir: options.agentDir,
+				eventLogDir: options.settings.eventLogDir,
+				reflection: reflectionSettings,
+			});
+		};
 
 		const ensureStore = (ctx: ExtensionContext): JsonlAkashaStore => {
 			const activeSessionId = ctx.sessionManager.getSessionId();
@@ -396,10 +405,12 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 				latestAssistantEventId,
 				currentTurnEventId,
 			);
-			const gateDecision = evaluateAkashaToolGate(event, {
-				settings: options.settings.actionGate,
-				timelineEvents: store?.buildTimeline({ limit: 500 }) ?? [],
-			});
+			const gateDecision = createKernel()?.evaluatePolicy(event, options.settings.actionGate) ?? {
+				allow: true,
+				action: "allow" as const,
+				severity: "info" as const,
+				eventIds: [],
+			};
 			let policyEventId: string | undefined;
 			if (gateDecision.rule) {
 				const policy = append(
@@ -414,6 +425,9 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 							reason: gateDecision.reason,
 							ruleId: gateDecision.rule,
 							evidenceEventIds: gateDecision.eventIds,
+							validationPlan: gateDecision.validationPlan,
+							confirmationPrompt: gateDecision.confirmationPrompt,
+							callback: gateDecision.callback,
 						},
 						{
 							actor: "system",
@@ -430,6 +444,24 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 				);
 				policyEventId = policy?.eventId;
 			}
+			if (gateDecision.action === "defer" && gateDecision.callback) {
+				const scheduled = createKernel()?.scheduleCallback({
+					callbackId: gateDecision.callback.callbackId,
+					kind: "scheduled_callback",
+					dueTime: gateDecision.callback.dueTime,
+					summary: gateDecision.callback.summary,
+					targetEventId: gateDecision.callback.targetEventId,
+					parentEventIds: parents(policyEventId, ...parentEventIds),
+					subjectId: "akasha.policy_kernel",
+					sourceKey: `tool-call:${sessionId}:${event.toolCallId}:deferred:${gateDecision.callback.callbackId}`,
+					importance: 0.8,
+				});
+				if (scheduled) latestLeafEventId = scheduled.eventId;
+				return {
+					block: true,
+					reason: gateDecision.reason ?? "Akasha deferred this tool call.",
+				};
+			}
 			if (!gateDecision.allow) {
 				append(
 					baseDraft(
@@ -438,7 +470,10 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 							toolName: event.toolName,
 							reason: gateDecision.reason,
 							rule: gateDecision.rule,
+							action: gateDecision.action,
 							blockedEventIds: gateDecision.eventIds,
+							validationPlan: gateDecision.validationPlan,
+							confirmationPrompt: gateDecision.confirmationPrompt,
 						},
 						{
 							actor: "system",
@@ -455,7 +490,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 				);
 				return {
 					block: true,
-					reason: gateDecision.reason ?? "Akasha blocked this tool call.",
+					reason: formatPolicyBlockReason(gateDecision),
 				};
 			}
 			const requested = append(
@@ -540,28 +575,16 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			const lastUserMessage = [...event.messages].reverse().find((message) => message.role === "user");
 			const queryText = lastUserMessage ? userMessageText(lastUserMessage) : undefined;
 			if (options.settings.actionGate.enabled) {
-				const projectTimeline = options.settings.actionGate.includeProjectState
-					? buildAkashaProjectTimeline({
-							agentDir: options.agentDir,
-							eventLogDir: options.settings.eventLogDir,
-							cwd: ctx.cwd,
-							limit: 1000,
-						})
-					: undefined;
-				const userTimeline = options.settings.actionGate.includeUserTimeline
-					? buildAkashaUserTimeline({
-							agentDir: options.agentDir,
-							eventLogDir: options.settings.eventLogDir,
-							limit: 1000,
-						})
-					: undefined;
-				const gate = buildAkashaActionGateContext({
-					sessionEvents: activeStore.buildTimeline({ limit: 500 }),
-					projectTimeline,
-					userTimeline,
-					maxItems: options.settings.actionGate.maxItems,
+				const result = createKernel()?.buildActionContext({
+					cwd: ctx.cwd,
+					settings: options.settings.actionGate,
+					parentEventIds: parents(currentTurnEventId, latestLeafEventId),
+					correlationId: currentTurnEventId,
+					sourceKey: nextSourceKey("action-gate"),
 				});
+				const gate = result?.gate;
 				if (gate) {
+					if (result.auditEvent) latestLeafEventId = result.auditEvent.eventId;
 					messages.push({
 						role: "custom",
 						customType: "akasha.action_gate",
@@ -570,6 +593,8 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 						details: {
 							source: BUILT_IN_PATH,
 							eventIds: gate.eventIds,
+							auditEventId: result?.auditEvent?.eventId,
+							sections: gate.sections,
 						},
 						timestamp: Date.now(),
 					});
@@ -717,4 +742,22 @@ function userMessageText(message: AgentMessage): string | undefined {
 		.filter((block) => block.type === "text")
 		.map((block) => block.text)
 		.join("\n");
+}
+
+function formatPolicyBlockReason(decision: {
+	action?: string;
+	reason?: string;
+	validationPlan?: { recommendedCommands: string[] };
+	confirmationPrompt?: string;
+}): string {
+	if (decision.action === "require_validation") {
+		const commands = decision.validationPlan?.recommendedCommands.join(", ");
+		return `${decision.reason ?? "Akasha requires validation before this tool call."}${
+			commands ? ` Recommended validation: ${commands}` : ""
+		}`;
+	}
+	if (decision.action === "require_confirmation") {
+		return decision.confirmationPrompt ?? decision.reason ?? "Akasha requires confirmation before this tool call.";
+	}
+	return decision.reason ?? "Akasha blocked this tool call.";
 }

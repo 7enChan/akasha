@@ -1,6 +1,10 @@
 import type { ToolCallEvent } from "../extensions/types.js";
 import type { ResolvedAkashaActionGateSettings } from "../settings-manager.js";
-import type { AkashaPolicyDecisionAction } from "./policy-kernel.js";
+import type {
+	AkashaPolicyCallbackSchedule,
+	AkashaPolicyDecisionAction,
+	AkashaValidationPlan,
+} from "./policy-kernel.js";
 import { evaluateAkashaPolicy } from "./policy-kernel.js";
 import type { AkashaEvent } from "./types.js";
 import { buildProjectState } from "./world-model.js";
@@ -12,6 +16,9 @@ export interface AkashaToolGateDecision {
 	rule?: string;
 	reason?: string;
 	eventIds: string[];
+	validationPlan?: AkashaValidationPlan;
+	confirmationPrompt?: string;
+	callback?: AkashaPolicyCallbackSchedule;
 }
 
 export interface AkashaToolGateOptions {
@@ -95,6 +102,9 @@ function fromPolicyDecision(decision: ReturnType<typeof evaluateAkashaPolicy>): 
 		rule: decision.ruleId,
 		reason: decision.reason,
 		eventIds: decision.evidenceEventIds,
+		validationPlan: decision.validationPlan,
+		confirmationPrompt: decision.confirmationPrompt,
+		callback: decision.callback,
 	};
 }
 
