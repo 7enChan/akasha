@@ -38,6 +38,28 @@ describe("DefaultResourceLoader", () => {
 			expect(loader.getThemes().themes).toEqual([]);
 		});
 
+		it("should load built-in Akasha extension only when enabled", async () => {
+			const disabled = new DefaultResourceLoader({
+				cwd,
+				agentDir,
+				settingsManager: SettingsManager.inMemory(),
+			});
+			await disabled.reload();
+			expect(disabled.getExtensions().extensions.some((extension) => extension.path === "<built-in:akasha>")).toBe(
+				false,
+			);
+
+			const enabled = new DefaultResourceLoader({
+				cwd,
+				agentDir,
+				settingsManager: SettingsManager.inMemory({ akasha: { enabled: true } }),
+			});
+			await enabled.reload();
+			const akasha = enabled.getExtensions().extensions.find((extension) => extension.path === "<built-in:akasha>");
+			expect(akasha).toBeDefined();
+			expect(akasha?.commands.has("akasha")).toBe(true);
+		});
+
 		it("should discover skills from agentDir", async () => {
 			const skillsDir = join(agentDir, "skills");
 			mkdirSync(skillsDir, { recursive: true });

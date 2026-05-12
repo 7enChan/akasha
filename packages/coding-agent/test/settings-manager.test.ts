@@ -24,6 +24,97 @@ describe("SettingsManager", () => {
 		}
 	});
 
+	describe("akasha settings", () => {
+		it("should be disabled by default", () => {
+			const manager = SettingsManager.inMemory();
+
+			expect(manager.getAkashaSettings()).toEqual({
+				enabled: false,
+				injectTemporalBrief: false,
+				maxBriefEvents: 12,
+				eventLogDir: undefined,
+				embedding: {
+					enabled: false,
+					provider: "off",
+					model: "text-embedding-3-small",
+					baseUrl: "https://api.openai.com/v1/embeddings",
+					apiKeyEnv: "OPENAI_API_KEY",
+					indexDir: undefined,
+					dimensions: 64,
+				},
+				reflection: {
+					enabled: false,
+					minEventsSinceLastReflection: 40,
+					minIntervalMinutes: 240,
+				},
+				maintenance: {
+					enabled: false,
+					runOnTurnEnd: false,
+				},
+				privacy: {
+					redactSecrets: true,
+				},
+			});
+		});
+
+		it("should resolve configured Akasha settings", () => {
+			const manager = SettingsManager.inMemory({
+				akasha: {
+					enabled: true,
+					injectTemporalBrief: true,
+					maxBriefEvents: 4.8,
+					eventLogDir: ".pi/akasha-events",
+					embedding: {
+						enabled: true,
+						provider: "hash",
+						indexDir: ".pi/akasha-embeddings",
+						dimensions: 31.8,
+					},
+					reflection: {
+						enabled: true,
+						minEventsSinceLastReflection: 3.9,
+						minIntervalMinutes: 10.2,
+					},
+					maintenance: {
+						enabled: true,
+						runOnTurnEnd: true,
+					},
+					privacy: {
+						redactSecrets: false,
+					},
+				},
+			});
+
+			expect(manager.getAkashaSettings()).toEqual({
+				enabled: true,
+				injectTemporalBrief: true,
+				maxBriefEvents: 4,
+				eventLogDir: ".pi/akasha-events",
+				embedding: {
+					enabled: true,
+					provider: "hash",
+					model: "text-embedding-3-small",
+					baseUrl: "https://api.openai.com/v1/embeddings",
+					apiKeyEnv: "OPENAI_API_KEY",
+					indexDir: ".pi/akasha-embeddings",
+					dimensions: 31,
+				},
+				reflection: {
+					enabled: true,
+					minEventsSinceLastReflection: 3,
+					minIntervalMinutes: 10,
+				},
+				maintenance: {
+					enabled: true,
+					runOnTurnEnd: true,
+				},
+				privacy: {
+					redactSecrets: false,
+				},
+			});
+		});
+	});
+
 	describe("preserves externally added settings", () => {
 		it("should preserve enabledModels when changing thinking level", async () => {
 			// Create initial settings file

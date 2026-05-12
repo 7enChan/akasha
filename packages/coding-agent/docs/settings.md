@@ -93,6 +93,43 @@ Set `PI_SKIP_VERSION_CHECK=1` to disable the Pi version update check. Use `--off
 | `branchSummary.reserveTokens` | number | `16384` | Tokens reserved for branch summarization |
 | `branchSummary.skipPrompt` | boolean | `false` | Skip "Summarize branch?" prompt on `/tree` navigation (defaults to no summary) |
 
+### Akasha Time Bus
+
+Akasha is an optional local sidecar memory layer for coding-agent session and tool lifecycles. When enabled, it writes append-only JSONL event logs without changing the normal session transcript.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `akasha.enabled` | boolean | `false` | Enable the built-in Akasha collector and `/akasha` command |
+| `akasha.injectTemporalBrief` | boolean | `false` | Inject a compact temporal brief into LLM context without persisting it to the session transcript |
+| `akasha.maxBriefEvents` | number | `12` | Maximum event count considered for the injected temporal brief |
+| `akasha.eventLogDir` | string | - | Override event log directory; defaults to `<agentDir>/akasha/events` |
+| `akasha.embedding.enabled` | boolean | `false` | Enable semantic temporal recall indexing |
+| `akasha.embedding.provider` | string | `"off"` | Embedding provider: `"off"`, `"hash"`, or `"openai-compatible"` |
+| `akasha.embedding.indexDir` | string | - | Override embedding index directory; defaults to `<agentDir>/akasha/embeddings` |
+| `akasha.embedding.model` | string | `"text-embedding-3-small"` | Model name for OpenAI-compatible embedding endpoints |
+| `akasha.embedding.baseUrl` | string | `"https://api.openai.com/v1/embeddings"` | OpenAI-compatible embeddings endpoint |
+| `akasha.embedding.apiKeyEnv` | string | `"OPENAI_API_KEY"` | Environment variable used for the embedding API key |
+| `akasha.reflection.enabled` | boolean | `false` | Enable automatic reflection during Akasha maintenance |
+| `akasha.maintenance.enabled` | boolean | `false` | Enable Akasha maintenance pass support |
+| `akasha.maintenance.runOnTurnEnd` | boolean | `false` | Run maintenance at turn end when enabled |
+| `akasha.privacy.redactSecrets` | boolean | `true` | Redact common secrets before appending Akasha events |
+
+Useful inspection commands include `/akasha timeline [n]` for the current session, `/akasha project-timeline [n]` for all sessions in the current project `cwd`, `/akasha project-state project` for cross-session project state, `/akasha scheduler` for a manual Karma/scheduler pass, and `/akasha doctor` for schema, redaction, and retention diagnostics.
+
+```json
+{
+  "akasha": {
+    "enabled": true,
+    "injectTemporalBrief": true,
+    "maxBriefEvents": 12,
+    "embedding": {
+      "enabled": true,
+      "provider": "openai-compatible"
+    }
+  }
+}
+```
+
 ### Retry
 
 | Setting | Type | Default | Description |

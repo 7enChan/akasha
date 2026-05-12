@@ -56,6 +56,80 @@ export interface WarningSettings {
 	anthropicExtraUsage?: boolean; // default: true
 }
 
+export interface AkashaSettings {
+	enabled?: boolean; // default: false
+	injectTemporalBrief?: boolean; // default: false
+	maxBriefEvents?: number; // default: 12
+	eventLogDir?: string;
+	embedding?: AkashaEmbeddingSettings;
+	reflection?: AkashaReflectionSettings;
+	maintenance?: AkashaMaintenanceSettings;
+	privacy?: AkashaPrivacySettings;
+}
+
+export interface ResolvedAkashaSettings {
+	enabled: boolean;
+	injectTemporalBrief: boolean;
+	maxBriefEvents: number;
+	eventLogDir?: string;
+	embedding: ResolvedAkashaEmbeddingSettings;
+	reflection: ResolvedAkashaReflectionSettings;
+	maintenance: ResolvedAkashaMaintenanceSettings;
+	privacy: ResolvedAkashaPrivacySettings;
+}
+
+export type AkashaEmbeddingProviderName = "off" | "hash" | "openai-compatible";
+
+export interface AkashaEmbeddingSettings {
+	enabled?: boolean; // default: false
+	provider?: AkashaEmbeddingProviderName; // default: "off"
+	model?: string; // default: text-embedding-3-small for openai-compatible
+	baseUrl?: string; // default: https://api.openai.com/v1/embeddings
+	apiKeyEnv?: string; // default: OPENAI_API_KEY
+	indexDir?: string;
+	dimensions?: number; // default: 64 for hash, provider default for HTTP
+}
+
+export interface ResolvedAkashaEmbeddingSettings {
+	enabled: boolean;
+	provider: AkashaEmbeddingProviderName;
+	model: string;
+	baseUrl: string;
+	apiKeyEnv: string;
+	indexDir?: string;
+	dimensions: number;
+}
+
+export interface AkashaReflectionSettings {
+	enabled?: boolean; // default: false
+	minEventsSinceLastReflection?: number; // default: 40
+	minIntervalMinutes?: number; // default: 240
+}
+
+export interface ResolvedAkashaReflectionSettings {
+	enabled: boolean;
+	minEventsSinceLastReflection: number;
+	minIntervalMinutes: number;
+}
+
+export interface AkashaMaintenanceSettings {
+	enabled?: boolean; // default: false
+	runOnTurnEnd?: boolean; // default: false
+}
+
+export interface ResolvedAkashaMaintenanceSettings {
+	enabled: boolean;
+	runOnTurnEnd: boolean;
+}
+
+export interface AkashaPrivacySettings {
+	redactSecrets?: boolean; // default: true
+}
+
+export interface ResolvedAkashaPrivacySettings {
+	redactSecrets: boolean;
+}
+
 export type TransportSetting = Transport;
 
 /**
@@ -109,6 +183,7 @@ export interface Settings {
 	showHardwareCursor?: boolean; // Show terminal cursor while still positioning it for IME
 	markdown?: MarkdownSettings;
 	warnings?: WarningSettings;
+	akasha?: AkashaSettings;
 	sessionDir?: string; // Custom session storage directory (same format as --session-dir CLI flag)
 }
 
@@ -691,6 +766,53 @@ export class SettingsManager {
 			enabled: this.getCompactionEnabled(),
 			reserveTokens: this.getCompactionReserveTokens(),
 			keepRecentTokens: this.getCompactionKeepRecentTokens(),
+		};
+	}
+
+	getAkashaSettings(): ResolvedAkashaSettings {
+		const maxBriefEvents = this.settings.akasha?.maxBriefEvents;
+		const embedding = this.settings.akasha?.embedding;
+		const reflection = this.settings.akasha?.reflection;
+		const maintenance = this.settings.akasha?.maintenance;
+		return {
+			enabled: this.settings.akasha?.enabled ?? false,
+			injectTemporalBrief: this.settings.akasha?.injectTemporalBrief ?? false,
+			maxBriefEvents:
+				typeof maxBriefEvents === "number" && Number.isFinite(maxBriefEvents)
+					? Math.max(1, Math.floor(maxBriefEvents))
+					: 12,
+			eventLogDir: this.settings.akasha?.eventLogDir,
+			embedding: {
+				enabled: embedding?.enabled ?? false,
+				provider: embedding?.provider ?? "off",
+				model: embedding?.model ?? "text-embedding-3-small",
+				baseUrl: embedding?.baseUrl ?? "https://api.openai.com/v1/embeddings",
+				apiKeyEnv: embedding?.apiKeyEnv ?? "OPENAI_API_KEY",
+				indexDir: embedding?.indexDir,
+				dimensions:
+					typeof embedding?.dimensions === "number" && Number.isFinite(embedding.dimensions)
+						? Math.max(8, Math.floor(embedding.dimensions))
+						: 64,
+			},
+			reflection: {
+				enabled: reflection?.enabled ?? false,
+				minEventsSinceLastReflection:
+					typeof reflection?.minEventsSinceLastReflection === "number" &&
+					Number.isFinite(reflection.minEventsSinceLastReflection)
+						? Math.max(1, Math.floor(reflection.minEventsSinceLastReflection))
+						: 40,
+				minIntervalMinutes:
+					typeof reflection?.minIntervalMinutes === "number" && Number.isFinite(reflection.minIntervalMinutes)
+						? Math.max(1, Math.floor(reflection.minIntervalMinutes))
+						: 240,
+			},
+			maintenance: {
+				enabled: maintenance?.enabled ?? false,
+				runOnTurnEnd: maintenance?.runOnTurnEnd ?? false,
+			},
+			privacy: {
+				redactSecrets: this.settings.akasha?.privacy?.redactSecrets ?? true,
+			},
 		};
 	}
 

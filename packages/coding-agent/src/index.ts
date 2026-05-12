@@ -13,6 +13,23 @@ export {
 	parseSkillBlock,
 	type SessionStats,
 } from "./core/agent-session.js";
+export type {
+	AkashaActor,
+	AkashaEvent,
+	AkashaEventDraft,
+	AkashaEventKind,
+	AkashaQuery,
+	AkashaStore,
+	AkashaTemporalBrief,
+	AkashaTtlPolicy,
+} from "./core/akasha/index.js";
+export * from "./core/akasha/index.js";
+export {
+	buildTemporalBrief,
+	createAkashaCollectorExtension,
+	JsonlAkashaStore,
+	resolveAkashaEventLogPath,
+} from "./core/akasha/index.js";
 // Auth and model registry
 export {
 	type ApiKeyCredential,
@@ -212,9 +229,11 @@ export {
 	type ThinkingLevelChangeEntry,
 } from "./core/session-manager.js";
 export {
+	type AkashaSettings,
 	type CompactionSettings,
 	type ImageSettings,
 	type PackageSource,
+	type ResolvedAkashaSettings,
 	type RetrySettings,
 	SettingsManager,
 } from "./core/settings-manager.js";

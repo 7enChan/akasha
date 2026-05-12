@@ -9,6 +9,7 @@ import type { ResourceDiagnostic } from "./diagnostics.js";
 export type { ResourceCollision, ResourceDiagnostic } from "./diagnostics.js";
 
 import { canonicalizePath, isLocalPath } from "../utils/paths.js";
+import { createAkashaCollectorExtension } from "./akasha/index.js";
 import { createEventBus, type EventBus } from "./event-bus.js";
 import { createExtensionRuntime, loadExtensionFromFactory, loadExtensions } from "./extensions/loader.js";
 import type { Extension, ExtensionFactory, ExtensionRuntime, LoadExtensionsResult } from "./extensions/types.js";
@@ -400,6 +401,27 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const inlineExtensions = await this.loadExtensionFactories(extensionsResult.runtime);
 		extensionsResult.extensions.push(...inlineExtensions.extensions);
 		extensionsResult.errors.push(...inlineExtensions.errors);
+		const akashaSettings = this.settingsManager.getAkashaSettings();
+		if (akashaSettings.enabled) {
+			try {
+				const akashaExtension = await loadExtensionFromFactory(
+					createAkashaCollectorExtension({
+						agentDir: this.agentDir,
+						settings: akashaSettings,
+					}),
+					this.cwd,
+					this.eventBus,
+					extensionsResult.runtime,
+					"<built-in:akasha>",
+				);
+				extensionsResult.extensions.push(akashaExtension);
+			} catch (error) {
+				extensionsResult.errors.push({
+					path: "<built-in:akasha>",
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+		}
 
 		// Detect extension conflicts (tools, commands, flags with same names from different extensions)
 		// Keep all extensions loaded. Conflicts are reported as diagnostics, and precedence is handled by load order.
