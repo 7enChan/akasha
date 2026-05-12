@@ -45,6 +45,9 @@ describe("Akasha collector extension", () => {
 					enabled: true,
 					injectTemporalBrief: true,
 					maxBriefEvents: 8,
+					actionGate: {
+						enabled: true,
+					},
 				},
 			}).getAkashaSettings(),
 		})(extension.pi);
@@ -130,6 +133,8 @@ describe("Akasha collector extension", () => {
 		const brief = messages.find(
 			(message) => message.role === "custom" && message.customType === "akasha.temporal_brief",
 		);
+		const gate = messages.find((message) => message.role === "custom" && message.customType === "akasha.action_gate");
+		expect(customMessageContent(gate)).toContain("Temporal control facts");
 		expect(customMessageContent(brief)).toContain("src/app.ts");
 
 		const logPath = resolveAkashaEventLogPath({}, agentDir, sessionManager.getSessionId());
@@ -173,6 +178,8 @@ describe("Akasha collector extension", () => {
 		await command?.handler("explain-current", fakeCommandContext(notices));
 		await command?.handler("open-loops", fakeCommandContext(notices));
 		await command?.handler("project-state", fakeCommandContext(notices));
+		await command?.handler("user-timeline", fakeCommandContext(notices));
+		await command?.handler("action-gate", fakeCommandContext(notices));
 		await command?.handler("karma", fakeCommandContext(notices));
 		await command?.handler("governance", fakeCommandContext(notices));
 		await command?.handler("doctor", fakeCommandContext(notices));
@@ -181,6 +188,8 @@ describe("Akasha collector extension", () => {
 		expect(notices.join("\n")).toContain("Current intent");
 		expect(notices.join("\n")).toContain("Open loops");
 		expect(notices.join("\n")).toContain("Current goal");
+		expect(notices.join("\n")).toContain("User timeline:");
+		expect(notices.join("\n")).toContain("<akasha_action_gate>");
 		expect(notices.join("\n")).toContain("Karma:");
 		expect(notices.join("\n")).toContain("Governance:");
 		expect(notices.join("\n")).toContain("Akasha doctor:");
@@ -203,6 +212,12 @@ describe("Akasha collector extension", () => {
 				indexDir: undefined,
 				dimensions: 64,
 			},
+			actionGate: {
+				enabled: false,
+				includeProjectState: true,
+				includeUserTimeline: true,
+				maxItems: 8,
+			},
 			reflection: {
 				enabled: false,
 				minEventsSinceLastReflection: 40,
@@ -211,6 +226,9 @@ describe("Akasha collector extension", () => {
 			maintenance: {
 				enabled: false,
 				runOnTurnEnd: false,
+				heartbeatEnabled: false,
+				heartbeatIntervalMinutes: 30,
+				runOnSessionStart: false,
 			},
 			privacy: {
 				redactSecrets: true,
@@ -244,6 +262,7 @@ function assistantMessageWithToolCall(toolCallId: string): AgentMessage {
 
 function fakeCommandContext(notices: string[]): ExtensionCommandContext {
 	return {
+		cwd: process.cwd(),
 		ui: {
 			notify: (message: string) => notices.push(message),
 		},

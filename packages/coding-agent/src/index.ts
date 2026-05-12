@@ -229,10 +229,14 @@ export {
 	type ThinkingLevelChangeEntry,
 } from "./core/session-manager.js";
 export {
+	type AkashaActionGateSettings,
+	type AkashaMaintenanceSettings,
 	type AkashaSettings,
 	type CompactionSettings,
 	type ImageSettings,
 	type PackageSource,
+	type ResolvedAkashaActionGateSettings,
+	type ResolvedAkashaMaintenanceSettings,
 	type ResolvedAkashaSettings,
 	type RetrySettings,
 	SettingsManager,

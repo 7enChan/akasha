@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "../extensions/types.js";
+import { buildAkashaActionGateContext } from "./action-gate.js";
 import type { AkashaDoctorReport } from "./doctor.js";
 import { buildAkashaDoctorReport } from "./doctor.js";
 import type { AkashaKarmaLedger } from "./karma-ledger.js";
@@ -12,6 +13,7 @@ import { runAkashaSchedulerPass } from "./scheduler.js";
 import type { AkashaOpenLoopCandidate, AkashaTemporalState } from "./temporal-state.js";
 import { buildTemporalState } from "./temporal-state.js";
 import type { AkashaEvent, AkashaStore } from "./types.js";
+import { buildAkashaUserTimeline, summarizeUserTimeline } from "./user-timeline.js";
 import type { AkashaProjectState } from "./world-model.js";
 import { buildProjectState } from "./world-model.js";
 
@@ -27,12 +29,14 @@ export function registerAkashaCommands(
 ): void {
 	pi.registerCommand("akasha", {
 		description:
-			"Inspect Akasha time events: /akasha status | timeline [n] | project-timeline [n] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | karma | scheduler | governance | doctor",
+			"Inspect Akasha time events: /akasha status | timeline [n] | project-timeline [n] | user-timeline | action-gate | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | karma | scheduler | governance | doctor",
 		getArgumentCompletions: (prefix) => {
 			const commands = [
 				"status",
 				"timeline",
 				"project-timeline",
+				"user-timeline",
+				"action-gate",
 				"why",
 				"explain-current",
 				"open-loops",
@@ -89,6 +93,49 @@ export function registerAkashaCommands(
 					].join("\n"),
 					"info",
 				);
+				return;
+			}
+
+			if (subcommand === "user-timeline") {
+				if (!options) {
+					ctx.ui.notify("Akasha user timeline is unavailable without command options.", "warning");
+					return;
+				}
+				ctx.ui.notify(
+					summarizeUserTimeline(
+						buildAkashaUserTimeline({
+							agentDir: options.agentDir,
+							eventLogDir: options.eventLogDir,
+							limit: 1000,
+						}),
+					),
+					"info",
+				);
+				return;
+			}
+
+			if (subcommand === "action-gate") {
+				const projectTimeline = options
+					? buildAkashaProjectTimeline({
+							agentDir: options.agentDir,
+							eventLogDir: options.eventLogDir,
+							cwd: ctx.cwd,
+							limit: 1000,
+						})
+					: undefined;
+				const userTimeline = options
+					? buildAkashaUserTimeline({
+							agentDir: options.agentDir,
+							eventLogDir: options.eventLogDir,
+							limit: 1000,
+						})
+					: undefined;
+				const gate = buildAkashaActionGateContext({
+					sessionEvents: store.buildTimeline({ limit: 500 }),
+					projectTimeline,
+					userTimeline,
+				});
+				ctx.ui.notify(gate?.text ?? "No Akasha action gate context is currently due.", "info");
 				return;
 			}
 
@@ -178,7 +225,7 @@ export function registerAkashaCommands(
 			}
 
 			ctx.ui.notify(
-				"Usage: /akasha status | timeline [n] | project-timeline [n] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | karma | scheduler | governance | doctor",
+				"Usage: /akasha status | timeline [n] | project-timeline [n] | user-timeline | action-gate | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | karma | scheduler | governance | doctor",
 				"warning",
 			);
 		},

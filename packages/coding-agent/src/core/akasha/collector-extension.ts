@@ -18,10 +18,13 @@ import type {
 	ResolvedAkashaSettings,
 } from "../settings-manager.js";
 import { deriveAccountabilityEventsFromAssistant } from "./accountability-extractor.js";
+import { buildAkashaActionGateContext } from "./action-gate.js";
 import { buildTemporalBrief, buildTemporalBriefWithEmbeddings } from "./brief.js";
 import { registerAkashaCommands } from "./commands.js";
 import { createAkashaEmbeddingProvider } from "./embedding-provider.js";
 import { JsonlAkashaEmbeddingStore } from "./embedding-store.js";
+import type { AkashaHeartbeatController } from "./heartbeat.js";
+import { createAkashaHeartbeat } from "./heartbeat.js";
 import { JsonlAkashaStore } from "./jsonl-store.js";
 import { runAkashaMaintenancePass } from "./maintenance.js";
 import {
@@ -33,7 +36,9 @@ import {
 	truncateText,
 } from "./mapper.js";
 import { deriveOpenLoopEvents } from "./open-loops.js";
+import { buildAkashaProjectTimeline } from "./project-timeline.js";
 import type { AkashaEvent, AkashaEventDraft, AkashaEventKind, AkashaStore } from "./types.js";
+import { buildAkashaUserTimeline } from "./user-timeline.js";
 
 const BUILT_IN_PATH = "<built-in:akasha>";
 
@@ -73,6 +78,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 	return (pi: ExtensionAPI) => {
 		let store: JsonlAkashaStore | undefined;
 		let embeddingStore: JsonlAkashaEmbeddingStore | undefined;
+		let heartbeat: AkashaHeartbeatController | undefined;
 		const embeddingSettings = resolveEmbeddingSettings(options.settings.embedding);
 		const reflectionSettings = resolveReflectionSettings(options.settings.reflection);
 		const maintenanceSettings = resolveMaintenanceSettings(options.settings.maintenance);
@@ -150,6 +156,32 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			const drafts = deriveOpenLoopEvents(store.buildTimeline({ limit: 500 }), sessionId, streamId);
 			for (const draft of drafts) {
 				append(draft);
+			}
+		};
+
+		const runMaintenance = async (ctx: ExtensionContext): Promise<void> => {
+			if (!maintenanceSettings.enabled || !store || !sessionId) return;
+			const activeEmbeddingStore = ensureEmbeddingStore(ctx);
+			await runAkashaMaintenancePass(store, {
+				sessionId,
+				streamId,
+				reflection: reflectionSettings,
+				embeddingStore: activeEmbeddingStore,
+				embeddingProvider,
+			});
+		};
+
+		const restartHeartbeat = (ctx: ExtensionContext): void => {
+			heartbeat?.stop();
+			heartbeat = undefined;
+			if (!maintenanceSettings.enabled || !maintenanceSettings.heartbeatEnabled) return;
+			heartbeat = createAkashaHeartbeat({
+				intervalMinutes: maintenanceSettings.heartbeatIntervalMinutes,
+				run: () => runMaintenance(ctx),
+			});
+			heartbeat.start();
+			if (maintenanceSettings.runOnSessionStart) {
+				void heartbeat.runNow();
 			}
 		};
 
@@ -241,6 +273,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			);
 
 			reconcileBranchEntries(ctx, started?.eventId);
+			restartHeartbeat(ctx);
 		});
 
 		pi.on("session_shutdown", (event, ctx) => {
@@ -258,6 +291,8 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 					},
 				),
 			);
+			heartbeat?.stop();
+			heartbeat = undefined;
 		});
 
 		pi.on("agent_start", () => {
@@ -305,15 +340,8 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			);
 			currentTurnEventId = completed?.eventId ?? currentTurnEventId;
 			materializeOpenLoops();
-			if (maintenanceSettings.enabled && maintenanceSettings.runOnTurnEnd && store && sessionId) {
-				const activeEmbeddingStore = ensureEmbeddingStore(ctx);
-				await runAkashaMaintenancePass(store, {
-					sessionId,
-					streamId,
-					reflection: reflectionSettings,
-					embeddingStore: activeEmbeddingStore,
-					embeddingProvider,
-				}).catch(() => undefined);
+			if (maintenanceSettings.enabled && maintenanceSettings.runOnTurnEnd) {
+				await runMaintenance(ctx).catch(() => undefined);
 			}
 		});
 
@@ -441,35 +469,70 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 
 		pi.on("context", async (event, ctx) => {
 			ensureStore(ctx);
-			if (!options.settings.injectTemporalBrief || !store) return undefined;
+			if (!store) return undefined;
 			const activeStore = store;
+			const messages: AgentMessage[] = [...event.messages];
 
 			const lastUserMessage = [...event.messages].reverse().find((message) => message.role === "user");
 			const queryText = lastUserMessage ? userMessageText(lastUserMessage) : undefined;
-			const activeEmbeddingStore = ensureEmbeddingStore(ctx);
-			const brief =
-				embeddingProvider && activeEmbeddingStore
-					? await buildTemporalBriefWithEmbeddings(activeStore, {
-							embeddingStore: activeEmbeddingStore,
-							embeddingProvider,
-							maxEvents: options.settings.maxBriefEvents,
-							queryText,
-						}).catch(() =>
-							buildTemporalBrief(activeStore, {
+			if (options.settings.actionGate.enabled) {
+				const projectTimeline = options.settings.actionGate.includeProjectState
+					? buildAkashaProjectTimeline({
+							agentDir: options.agentDir,
+							eventLogDir: options.settings.eventLogDir,
+							cwd: ctx.cwd,
+							limit: 1000,
+						})
+					: undefined;
+				const userTimeline = options.settings.actionGate.includeUserTimeline
+					? buildAkashaUserTimeline({
+							agentDir: options.agentDir,
+							eventLogDir: options.settings.eventLogDir,
+							limit: 1000,
+						})
+					: undefined;
+				const gate = buildAkashaActionGateContext({
+					sessionEvents: activeStore.buildTimeline({ limit: 500 }),
+					projectTimeline,
+					userTimeline,
+					maxItems: options.settings.actionGate.maxItems,
+				});
+				if (gate) {
+					messages.push({
+						role: "custom",
+						customType: "akasha.action_gate",
+						content: gate.text,
+						display: false,
+						details: {
+							source: BUILT_IN_PATH,
+							eventIds: gate.eventIds,
+						},
+						timestamp: Date.now(),
+					});
+				}
+			}
+
+			if (options.settings.injectTemporalBrief) {
+				const activeEmbeddingStore = ensureEmbeddingStore(ctx);
+				const brief =
+					embeddingProvider && activeEmbeddingStore
+						? await buildTemporalBriefWithEmbeddings(activeStore, {
+								embeddingStore: activeEmbeddingStore,
+								embeddingProvider,
 								maxEvents: options.settings.maxBriefEvents,
 								queryText,
-							}),
-						)
-					: buildTemporalBrief(activeStore, {
-							maxEvents: options.settings.maxBriefEvents,
-							queryText,
-						});
-			if (!brief) return undefined;
-
-			return {
-				messages: [
-					...event.messages,
-					{
+							}).catch(() =>
+								buildTemporalBrief(activeStore, {
+									maxEvents: options.settings.maxBriefEvents,
+									queryText,
+								}),
+							)
+						: buildTemporalBrief(activeStore, {
+								maxEvents: options.settings.maxBriefEvents,
+								queryText,
+							});
+				if (brief) {
+					messages.push({
 						role: "custom",
 						customType: "akasha.temporal_brief",
 						content: brief.text,
@@ -479,9 +542,11 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 							eventIds: brief.events.map((item) => item.eventId),
 						},
 						timestamp: Date.now(),
-					},
-				],
-			};
+					});
+				}
+			}
+
+			return messages.length > event.messages.length ? { messages } : undefined;
 		});
 
 		function mapModelSelect(event: ModelSelectEvent): AkashaEventDraft {
@@ -574,6 +639,9 @@ function resolveMaintenanceSettings(
 	return {
 		enabled: settings?.enabled ?? false,
 		runOnTurnEnd: settings?.runOnTurnEnd ?? false,
+		heartbeatEnabled: settings?.heartbeatEnabled ?? false,
+		heartbeatIntervalMinutes: settings?.heartbeatIntervalMinutes ?? 30,
+		runOnSessionStart: settings?.runOnSessionStart ?? false,
 	};
 }
 

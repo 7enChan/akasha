@@ -103,6 +103,10 @@ Akasha is an optional local sidecar memory layer for coding-agent session and to
 | `akasha.injectTemporalBrief` | boolean | `false` | Inject a compact temporal brief into LLM context without persisting it to the session transcript |
 | `akasha.maxBriefEvents` | number | `12` | Maximum event count considered for the injected temporal brief |
 | `akasha.eventLogDir` | string | - | Override event log directory; defaults to `<agentDir>/akasha/events` |
+| `akasha.actionGate.enabled` | boolean | `false` | Inject a compact pre-action control brief into LLM context without persisting it to the transcript |
+| `akasha.actionGate.includeProjectState` | boolean | `true` | Include cross-session project state in the action gate |
+| `akasha.actionGate.includeUserTimeline` | boolean | `true` | Include user-level preferences, commitments, and corrections in the action gate |
+| `akasha.actionGate.maxItems` | number | `8` | Maximum items per action-gate section |
 | `akasha.embedding.enabled` | boolean | `false` | Enable semantic temporal recall indexing |
 | `akasha.embedding.provider` | string | `"off"` | Embedding provider: `"off"`, `"hash"`, or `"openai-compatible"` |
 | `akasha.embedding.indexDir` | string | - | Override embedding index directory; defaults to `<agentDir>/akasha/embeddings` |
@@ -112,9 +116,12 @@ Akasha is an optional local sidecar memory layer for coding-agent session and to
 | `akasha.reflection.enabled` | boolean | `false` | Enable automatic reflection during Akasha maintenance |
 | `akasha.maintenance.enabled` | boolean | `false` | Enable Akasha maintenance pass support |
 | `akasha.maintenance.runOnTurnEnd` | boolean | `false` | Run maintenance at turn end when enabled |
+| `akasha.maintenance.heartbeatEnabled` | boolean | `false` | Run maintenance from an in-process wall-clock heartbeat while the session is active |
+| `akasha.maintenance.heartbeatIntervalMinutes` | number | `30` | Heartbeat maintenance interval in minutes |
+| `akasha.maintenance.runOnSessionStart` | boolean | `false` | Run one maintenance pass immediately after the session starts |
 | `akasha.privacy.redactSecrets` | boolean | `true` | Redact common secrets before appending Akasha events |
 
-Useful inspection commands include `/akasha timeline [n]` for the current session, `/akasha project-timeline [n]` for all sessions in the current project `cwd`, `/akasha project-state project` for cross-session project state, `/akasha scheduler` for a manual Karma/scheduler pass, and `/akasha doctor` for schema, redaction, and retention diagnostics.
+Useful inspection commands include `/akasha timeline [n]` for the current session, `/akasha project-timeline [n]` for all sessions in the current project `cwd`, `/akasha user-timeline` for user-level memory, `/akasha action-gate` for the pre-action control brief, `/akasha project-state project` for cross-session project state, `/akasha scheduler` for a manual Karma/scheduler pass, and `/akasha doctor` for schema, redaction, and retention diagnostics.
 
 ```json
 {
@@ -122,9 +129,17 @@ Useful inspection commands include `/akasha timeline [n]` for the current sessio
     "enabled": true,
     "injectTemporalBrief": true,
     "maxBriefEvents": 12,
+    "actionGate": {
+      "enabled": true
+    },
     "embedding": {
       "enabled": true,
       "provider": "openai-compatible"
+    },
+    "maintenance": {
+      "enabled": true,
+      "heartbeatEnabled": true,
+      "heartbeatIntervalMinutes": 30
     }
   }
 }

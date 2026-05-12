@@ -42,6 +42,12 @@ describe("SettingsManager", () => {
 					indexDir: undefined,
 					dimensions: 64,
 				},
+				actionGate: {
+					enabled: false,
+					includeProjectState: true,
+					includeUserTimeline: true,
+					maxItems: 8,
+				},
 				reflection: {
 					enabled: false,
 					minEventsSinceLastReflection: 40,
@@ -50,6 +56,9 @@ describe("SettingsManager", () => {
 				maintenance: {
 					enabled: false,
 					runOnTurnEnd: false,
+					heartbeatEnabled: false,
+					heartbeatIntervalMinutes: 30,
+					runOnSessionStart: false,
 				},
 				privacy: {
 					redactSecrets: true,
@@ -70,6 +79,12 @@ describe("SettingsManager", () => {
 						indexDir: ".pi/akasha-embeddings",
 						dimensions: 31.8,
 					},
+					actionGate: {
+						enabled: true,
+						includeProjectState: false,
+						includeUserTimeline: false,
+						maxItems: 3.8,
+					},
 					reflection: {
 						enabled: true,
 						minEventsSinceLastReflection: 3.9,
@@ -78,6 +93,9 @@ describe("SettingsManager", () => {
 					maintenance: {
 						enabled: true,
 						runOnTurnEnd: true,
+						heartbeatEnabled: true,
+						heartbeatIntervalMinutes: 2.9,
+						runOnSessionStart: true,
 					},
 					privacy: {
 						redactSecrets: false,
@@ -99,6 +117,12 @@ describe("SettingsManager", () => {
 					indexDir: ".pi/akasha-embeddings",
 					dimensions: 31,
 				},
+				actionGate: {
+					enabled: true,
+					includeProjectState: false,
+					includeUserTimeline: false,
+					maxItems: 3,
+				},
 				reflection: {
 					enabled: true,
 					minEventsSinceLastReflection: 3,
@@ -107,6 +131,9 @@ describe("SettingsManager", () => {
 				maintenance: {
 					enabled: true,
 					runOnTurnEnd: true,
+					heartbeatEnabled: true,
+					heartbeatIntervalMinutes: 2,
+					runOnSessionStart: true,
 				},
 				privacy: {
 					redactSecrets: false,

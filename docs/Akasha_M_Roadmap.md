@@ -311,6 +311,24 @@ agent proposes
 - 删除或 redaction 后 projection 可重建，并且不会引用已撤回 payload。
 - 长期记忆开启必须是显式选择。
 
+## M10：Time OS Control Plane
+
+**目标：** 让 Akasha 从“可被查询的记忆层”进入“行动前会影响 Agent 的本地时间控制层”。
+
+**核心能力：**
+
+- Action Gate：在每次 LLM 行动前注入隐藏的时间控制事实，包含当前项目目标、活跃文件、未闭环事项、Karma 压力、用户长期偏好与历史纠错。
+- Heartbeat Maintenance：在 session 存活期间按墙钟时间运行维护 pass，不再只依赖 turn end。
+- User Timeline：从所有本地 Akasha session 中投影用户级时间线，独立于项目 `cwd`，记录长期目标、偏好、协作方式、开放承诺、到期预测与纠错记录。
+- Slash Command Inspection：通过 `/akasha user-timeline` 和 `/akasha action-gate` 审计控制层输入。
+
+**退出标准：**
+
+- Action Gate 是 opt-in，且只进入隐藏 context，不写入普通 session transcript。
+- Heartbeat 是 opt-in，并在 session shutdown 时停止。
+- User Timeline 可从 JSONL 重建，不依赖内存状态。
+- Action Gate 的每条重要事实能追溯到 supporting event ids。
+
 ## 阶段依赖图
 
 ```text
@@ -326,6 +344,7 @@ M0 Event Ontology
                 -> M7 Scheduler / Cross-session
                   -> M8 Multi-runtime SDK
                     -> M9 Governance / Trust
+                      -> M10 Time OS Control Plane
 ```
 
 ## 每阶段通用质量门槛
@@ -340,30 +359,31 @@ M0 Event Ontology
 
 ## 当前优先级
 
-下一步最应该做的是 **M1.1 + M1.2**，也就是 projection 层与 temporal recall eval harness。原因是：M1 已经证明事件可以被稳定采集，但事件流本身还只是历史；projection 才能把历史转成“当前状态”，eval 才能确保 Akasha 在正确时间想起正确事情。
+当前已进入 **M10 Control Plane** 切片。原因是：事件流、projection、Karma seed、reflection、temporal RAG、project timeline、scheduler 与治理能力已经具备局部闭环，下一步要让时间事实开始影响 Agent 行动前的决策。
 
 推荐下一轮开发标题：
 
 ```text
-Akasha M1.1: Temporal State Projections and Recall Evals
+Akasha M10: Time OS Control Plane
 ```
 
 建议第一批文件边界：
 
-- `packages/coding-agent/src/core/akasha/projections.ts`
-- `packages/coding-agent/src/core/akasha/temporal-state.ts`
-- `packages/coding-agent/src/core/akasha/recall-policy.ts`
-- `packages/coding-agent/test/akasha-projections.test.ts`
-- `packages/coding-agent/test/akasha-recall-policy.test.ts`
+- `packages/coding-agent/src/core/akasha/action-gate.ts`
+- `packages/coding-agent/src/core/akasha/user-timeline.ts`
+- `packages/coding-agent/src/core/akasha/heartbeat.ts`
+- `packages/coding-agent/test/akasha-action-gate.test.ts`
+- `packages/coding-agent/test/akasha-user-timeline.test.ts`
+- `packages/coding-agent/test/akasha-heartbeat.test.ts`
 
 建议第一批命令：
 
-- `/akasha open-loops`
-- `/akasha explain-current`
+- `/akasha user-timeline`
+- `/akasha action-gate`
 
 建议第一批验收：
 
-- patch 后未测试必须出现在 open loops。
-- 失败 tool 未被后续成功覆盖时必须出现在 temporal state。
-- compaction/branch summary 必须能进入 explain-current，但不能压过最近用户意图。
-- temporal brief 不包含 streaming update，不包含完整文件内容，不包含完整命令输出。
+- Action Gate 能在隐藏 context 中出现未闭环事项、用户偏好和历史纠错。
+- Heartbeat 能按配置间隔运行维护 pass，并避免重叠执行。
+- User Timeline 能跨 session 聚合用户长期目标、协作偏好和开放承诺。
+- 所有能力默认关闭，关闭 Akasha 后原有 session 行为不变。

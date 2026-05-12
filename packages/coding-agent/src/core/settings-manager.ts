@@ -62,6 +62,7 @@ export interface AkashaSettings {
 	maxBriefEvents?: number; // default: 12
 	eventLogDir?: string;
 	embedding?: AkashaEmbeddingSettings;
+	actionGate?: AkashaActionGateSettings;
 	reflection?: AkashaReflectionSettings;
 	maintenance?: AkashaMaintenanceSettings;
 	privacy?: AkashaPrivacySettings;
@@ -73,6 +74,7 @@ export interface ResolvedAkashaSettings {
 	maxBriefEvents: number;
 	eventLogDir?: string;
 	embedding: ResolvedAkashaEmbeddingSettings;
+	actionGate: ResolvedAkashaActionGateSettings;
 	reflection: ResolvedAkashaReflectionSettings;
 	maintenance: ResolvedAkashaMaintenanceSettings;
 	privacy: ResolvedAkashaPrivacySettings;
@@ -100,6 +102,20 @@ export interface ResolvedAkashaEmbeddingSettings {
 	dimensions: number;
 }
 
+export interface AkashaActionGateSettings {
+	enabled?: boolean; // default: false
+	includeProjectState?: boolean; // default: true
+	includeUserTimeline?: boolean; // default: true
+	maxItems?: number; // default: 8
+}
+
+export interface ResolvedAkashaActionGateSettings {
+	enabled: boolean;
+	includeProjectState: boolean;
+	includeUserTimeline: boolean;
+	maxItems: number;
+}
+
 export interface AkashaReflectionSettings {
 	enabled?: boolean; // default: false
 	minEventsSinceLastReflection?: number; // default: 40
@@ -115,11 +131,17 @@ export interface ResolvedAkashaReflectionSettings {
 export interface AkashaMaintenanceSettings {
 	enabled?: boolean; // default: false
 	runOnTurnEnd?: boolean; // default: false
+	heartbeatEnabled?: boolean; // default: false
+	heartbeatIntervalMinutes?: number; // default: 30
+	runOnSessionStart?: boolean; // default: false
 }
 
 export interface ResolvedAkashaMaintenanceSettings {
 	enabled: boolean;
 	runOnTurnEnd: boolean;
+	heartbeatEnabled: boolean;
+	heartbeatIntervalMinutes: number;
+	runOnSessionStart: boolean;
 }
 
 export interface AkashaPrivacySettings {
@@ -772,6 +794,7 @@ export class SettingsManager {
 	getAkashaSettings(): ResolvedAkashaSettings {
 		const maxBriefEvents = this.settings.akasha?.maxBriefEvents;
 		const embedding = this.settings.akasha?.embedding;
+		const actionGate = this.settings.akasha?.actionGate;
 		const reflection = this.settings.akasha?.reflection;
 		const maintenance = this.settings.akasha?.maintenance;
 		return {
@@ -794,6 +817,15 @@ export class SettingsManager {
 						? Math.max(8, Math.floor(embedding.dimensions))
 						: 64,
 			},
+			actionGate: {
+				enabled: actionGate?.enabled ?? false,
+				includeProjectState: actionGate?.includeProjectState ?? true,
+				includeUserTimeline: actionGate?.includeUserTimeline ?? true,
+				maxItems:
+					typeof actionGate?.maxItems === "number" && Number.isFinite(actionGate.maxItems)
+						? Math.max(1, Math.floor(actionGate.maxItems))
+						: 8,
+			},
 			reflection: {
 				enabled: reflection?.enabled ?? false,
 				minEventsSinceLastReflection:
@@ -809,6 +841,13 @@ export class SettingsManager {
 			maintenance: {
 				enabled: maintenance?.enabled ?? false,
 				runOnTurnEnd: maintenance?.runOnTurnEnd ?? false,
+				heartbeatEnabled: maintenance?.heartbeatEnabled ?? false,
+				heartbeatIntervalMinutes:
+					typeof maintenance?.heartbeatIntervalMinutes === "number" &&
+					Number.isFinite(maintenance.heartbeatIntervalMinutes)
+						? Math.max(1, Math.floor(maintenance.heartbeatIntervalMinutes))
+						: 30,
+				runOnSessionStart: maintenance?.runOnSessionStart ?? false,
 			},
 			privacy: {
 				redactSecrets: this.settings.akasha?.privacy?.redactSecrets ?? true,

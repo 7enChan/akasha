@@ -1,5 +1,7 @@
 export type { AkashaAccountabilityExtractionOptions } from "./accountability-extractor.js";
 export { deriveAccountabilityEventsFromAssistant } from "./accountability-extractor.js";
+export type { AkashaActionGateContext, AkashaActionGateOptions } from "./action-gate.js";
+export { buildAkashaActionGateContext } from "./action-gate.js";
 export type { AkashaArtifactState, AkashaArtifactStatus } from "./artifact-state.js";
 export { buildArtifactStates } from "./artifact-state.js";
 export { buildTemporalBrief, buildTemporalBriefWithEmbeddings } from "./brief.js";
@@ -29,6 +31,8 @@ export type {
 export { InMemoryAkashaEmbeddingStore, JsonlAkashaEmbeddingStore } from "./embedding-store.js";
 export type { AkashaExportFormat, AkashaExportOptions } from "./event-export.js";
 export { exportAkashaEvents, importAkashaEvents } from "./event-export.js";
+export type { AkashaHeartbeatController, AkashaHeartbeatOptions } from "./heartbeat.js";
+export { createAkashaHeartbeat } from "./heartbeat.js";
 export { JsonlAkashaStore } from "./jsonl-store.js";
 export type {
 	AkashaKarmaLedger,
@@ -117,6 +121,8 @@ export type {
 	AkashaTemporalBrief,
 	AkashaTtlPolicy,
 } from "./types.js";
+export type { AkashaUserFact, AkashaUserTimeline, AkashaUserTimelineOptions } from "./user-timeline.js";
+export { buildAkashaUserTimeline, buildAkashaUserTimelineFromEvents, summarizeUserTimeline } from "./user-timeline.js";
 export type {
 	AkashaProjectBlocker,
 	AkashaProjectDecision,
