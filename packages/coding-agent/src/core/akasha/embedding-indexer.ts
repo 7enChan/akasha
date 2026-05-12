@@ -87,11 +87,19 @@ function isCrystalEvent(event: AkashaEvent): boolean {
 
 function payloadText(event: AkashaEvent): string {
 	const payload = event.payload;
-	if (typeof payload.text === "string") return payload.text;
-	if (typeof payload.summary === "string") return payload.summary;
-	if (typeof payload.lesson === "string") return payload.lesson;
-	if (typeof payload.preference === "string") return payload.preference;
-	if (typeof payload.command === "string") return payload.command;
-	if (typeof payload.path === "string") return payload.path;
+	const parts = [
+		payload.text,
+		payload.statement,
+		payload.summary,
+		payload.claim,
+		payload.actual,
+		payload.correction,
+		payload.resolutionCriteria,
+		payload.lesson,
+		payload.preference,
+		payload.command,
+		payload.path,
+	].filter((item): item is string => typeof item === "string" && item.length > 0);
+	if (parts.length > 0) return [...new Set(parts)].join("\n");
 	return JSON.stringify(payload);
 }

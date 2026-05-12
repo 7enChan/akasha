@@ -36,6 +36,18 @@ import {
 } from "./mapper.js";
 import { deriveOpenLoopEvents } from "./open-loops.js";
 import { createAkashaTemporalKernel } from "./temporal-kernel.js";
+import {
+	appendAkashaCommitment,
+	appendAkashaCommitmentResolution,
+	appendAkashaPrediction,
+	appendAkashaPredictionCheck,
+	checkPredictionSchema,
+	createCommitmentSchema,
+	createPredictionSchema,
+	eventToolResult,
+	isAkashaTimeSyscallToolName,
+	resolveCommitmentSchema,
+} from "./time-syscalls.js";
 import type { AkashaEvent, AkashaEventDraft, AkashaEventKind, AkashaStore } from "./types.js";
 
 const BUILT_IN_PATH = "<built-in:akasha>";
@@ -263,10 +275,74 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			}
 		};
 
+		const syscallContext = (ctx: ExtensionContext, toolCallId: string) => {
+			ensureStore(ctx);
+			return {
+				store: store!,
+				sessionId: sessionId ?? ctx.sessionManager.getSessionId(),
+				streamId,
+				now: nowIso,
+				parentEventIds: parents(latestLeafEventId, currentTurnEventId, latestAssistantEventId),
+				correlationId: currentTurnEventId,
+				toolCallId,
+				sourceKeyPrefix: `akasha-syscall:${sessionId ?? ctx.sessionManager.getSessionId()}`,
+			};
+		};
+
 		registerAkashaCommands(pi, getStore, {
 			agentDir: options.agentDir,
 			eventLogDir: options.settings.eventLogDir,
 			reflection: reflectionSettings,
+		});
+
+		pi.registerTool({
+			name: "akasha_create_commitment",
+			label: "akasha commitment",
+			description:
+				"Create an explicit Akasha commitment when the agent or user takes on future responsibility that should be tracked.",
+			promptSnippet: "Record future commitments in Akasha time using akasha_create_commitment.",
+			promptGuidelines: [
+				"When you make a concrete future commitment, call akasha_create_commitment instead of relying only on natural language.",
+				"Include dueTime when there is a clear future check point, and resolutionCriteria when completion can be judged.",
+			],
+			parameters: createCommitmentSchema,
+			execute: async (toolCallId, params, _signal, _onUpdate, ctx) =>
+				eventToolResult(appendAkashaCommitment(syscallContext(ctx, toolCallId), params)),
+		});
+
+		pi.registerTool({
+			name: "akasha_resolve_commitment",
+			label: "akasha resolve commitment",
+			description: "Resolve an existing Akasha commitment with optional evidence.",
+			promptSnippet: "Resolve tracked Akasha commitments with akasha_resolve_commitment.",
+			parameters: resolveCommitmentSchema,
+			execute: async (toolCallId, params, _signal, _onUpdate, ctx) =>
+				eventToolResult(appendAkashaCommitmentResolution(syscallContext(ctx, toolCallId), params)),
+		});
+
+		pi.registerTool({
+			name: "akasha_create_prediction",
+			label: "akasha prediction",
+			description:
+				"Create an explicit Akasha prediction when the agent makes a falsifiable expectation that should be checked later.",
+			promptSnippet: "Record falsifiable predictions in Akasha time using akasha_create_prediction.",
+			promptGuidelines: [
+				"When you make a concrete prediction about future outcomes, call akasha_create_prediction.",
+				"Use checkAfter and resolutionCriteria when the prediction has a natural validation point.",
+			],
+			parameters: createPredictionSchema,
+			execute: async (toolCallId, params, _signal, _onUpdate, ctx) =>
+				eventToolResult(appendAkashaPrediction(syscallContext(ctx, toolCallId), params)),
+		});
+
+		pi.registerTool({
+			name: "akasha_check_prediction",
+			label: "akasha check prediction",
+			description: "Check or correct an Akasha prediction with the observed actual outcome.",
+			promptSnippet: "Check tracked Akasha predictions with akasha_check_prediction.",
+			parameters: checkPredictionSchema,
+			execute: async (toolCallId, params, _signal, _onUpdate, ctx) =>
+				eventToolResult(appendAkashaPredictionCheck(syscallContext(ctx, toolCallId), params)),
 		});
 
 		pi.on("session_start", (event, ctx) => {
@@ -391,8 +467,10 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			if (recorded && event.message.role === "assistant") {
 				latestAssistantEventId = recorded.eventId;
 				rememberAssistantToolParents(event.message, recorded.eventId);
-				for (const draft of deriveAccountabilityEventsFromAssistant(recorded)) {
-					append(draft);
+				if (!hasAkashaTimeSyscallToolCall(event.message)) {
+					for (const draft of deriveAccountabilityEventsFromAssistant(recorded)) {
+						append(draft);
+					}
 				}
 			}
 			return undefined;
@@ -742,6 +820,20 @@ function userMessageText(message: AgentMessage): string | undefined {
 		.filter((block) => block.type === "text")
 		.map((block) => block.text)
 		.join("\n");
+}
+
+function hasAkashaTimeSyscallToolCall(message: AgentMessage): boolean {
+	if (message.role !== "assistant" || !Array.isArray(message.content)) return false;
+	return message.content.some(
+		(block) =>
+			typeof block === "object" &&
+			block !== null &&
+			"type" in block &&
+			block.type === "toolCall" &&
+			"name" in block &&
+			typeof block.name === "string" &&
+			isAkashaTimeSyscallToolName(block.name),
+	);
 }
 
 function formatPolicyBlockReason(decision: {

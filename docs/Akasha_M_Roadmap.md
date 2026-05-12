@@ -465,6 +465,56 @@ agent proposes
 - 读取文件不会清除已有 unverified 修改状态。
 - Tool gate 和 task risk 基于 scoped artifact state 工作。
 
+## M18：Explicit Time Syscalls
+
+**目标：** 把承诺和预测从自然语言副产物升级为显式时间系统调用，减少正则抽取误判。
+
+**核心能力：**
+
+- Time Syscall API：新增创建/关闭 commitment、创建/检查 prediction 的 append-only helper。
+- LLM-callable Tools：注册 `akasha_create_commitment`、`akasha_resolve_commitment`、`akasha_create_prediction`、`akasha_check_prediction`。
+- Source Metadata：显式事件带 `source: "syscall"`、confidence、resolution criteria、source event ids、toolCallId 和 correlation。
+- Heuristic Fallback：自然语言抽取仍保留，但当 assistant 已调用 Akasha syscall tool 时不重复生成 promise/prediction。
+
+**退出标准：**
+
+- Agent 能通过工具写入 `promise.created`、`promise.resolved`、`prediction.made`、`prediction.checked/corrected`。
+- 显式事件进入 Karma Ledger、Task Graph、Action Gate 和 Callback Queue。
+- 显式 syscall 与 heuristic extraction 不重复。
+
+## M19：Temporal Behavior Eval Fixtures
+
+**目标：** 把“时间行为正确性”变成可回归测试，不只测试 recall ranking。
+
+**核心能力：**
+
+- Behavior Eval：新增评测器检查 open promises、unverified artifacts、governed suppression、Action Gate 内容和 Task Graph edges。
+- Fixture JSONL：新增跨能力 fixture 覆盖 commitment、due callback、suppression、artifact patch 和 broad validation。
+- Diagnostic Output：失败时输出 case name 和具体缺失/意外行为。
+
+**退出标准：**
+
+- fixture 能证明 due callback 会进入 action gate。
+- fixture 能证明 suppressed 派生事实不会进入 governed projection。
+- fixture 能证明 broad validation 不会误关闭 artifact risk。
+
+## M20+：Reflection Crystals 与 Temporal RAG Hardening
+
+**目标：** 加固长期记忆沉淀与语义召回，让 memory crystal 更可信、更可追溯，并遵守治理投影。
+
+**核心能力：**
+
+- Governed Reflection：Reflection Worker 只基于 governed events 生成 crystal。
+- Crystal Source Chain：crystal 和 memory crystal payload 都带 `sourceEventIds`，便于治理传播和审计。
+- Embedding Text Hardening：embedding 文本优先提取 statement、claim、actual、correction、resolution criteria 等关键字段。
+- Local-first Default：reflection/embedding 仍默认关闭，只加固开启后的行为。
+
+**退出标准：**
+
+- suppressed/redacted source 不会被反思沉淀成长期 crystal。
+- crystal 召回能携带 source chain。
+- prediction correction 和 failure lesson 能作为高权重 RAG 事实进入 temporal recall。
+
 ## 阶段依赖图
 
 ```text
@@ -488,6 +538,9 @@ M0 Event Ontology
 	                                -> M15 Temporal Task Graph
 	                                  -> M16 Governance Propagation
 	                                    -> M17 Artifact Verification Integrity
+	                                      -> M18 Explicit Time Syscalls
+	                                        -> M19 Temporal Behavior Evals
+	                                          -> M20 Reflection / RAG Hardening
 ```
 
 ## 每阶段通用质量门槛
@@ -502,33 +555,31 @@ M0 Event Ontology
 
 ## 当前优先级
 
-当前已进入 **M18 Explicit Time Syscalls** 切片。原因是：M15-M17 已经把当前状态图、治理传播和 artifact 验证完整性补齐，下一步要减少对自然语言正则的依赖，让承诺和预测成为显式时间系统调用。
+当前已进入 **M21 Time OS Persistence and Compaction Boundary** 切片。原因是：M18-M20 已经补齐显式时间系统调用、行为评测和长期记忆/RAG 加固，下一步应处理更接近 OS 层的持久化边界、投影缓存和跨 session 性能。
 
 推荐下一轮开发标题：
 
 ```text
-Akasha M18: Explicit Time Syscalls
+Akasha M21: Temporal Persistence and Projection Cache
 ```
 
 建议第一批文件边界：
 
-- `packages/coding-agent/src/core/akasha/accountability-extractor.ts`
-- `packages/coding-agent/src/core/akasha/time-syscalls.ts`
-- `packages/coding-agent/src/core/akasha/collector-extension.ts`
-- `packages/coding-agent/src/core/akasha/types.ts`
-- `packages/coding-agent/src/core/akasha/schema.ts`
-- `packages/coding-agent/test/akasha-accountability.test.ts`
-- `packages/coding-agent/test/akasha-time-syscalls.test.ts`
+- `packages/coding-agent/src/core/akasha/jsonl-store.ts`
+- `packages/coding-agent/src/core/akasha/projection-cache.ts`
+- `packages/coding-agent/src/core/akasha/session-index.ts`
+- `packages/coding-agent/src/core/akasha/temporal-kernel.ts`
+- `packages/coding-agent/test/akasha-projection-cache.test.ts`
+- `packages/coding-agent/test/akasha-store.test.ts`
 
 建议第一批命令：
 
-- internal `akasha_create_commitment`
-- internal `akasha_resolve_commitment`
-- internal `akasha_create_prediction`
-- internal `akasha_check_prediction`
+- `/akasha doctor`
+- `/akasha project-state project`
+- `/akasha task-model`
 
 建议第一批验收：
 
-- Agent 产生未来责任时能写入显式 promise/prediction 事件，而不只靠正则抽取。
-- 显式 promise/prediction 带 source、confidence、due/checkAfter 和 resolution criteria。
-- heuristic 抽取仍可作为 fallback，但不会和显式 syscall 重复。
+- 大事件流下常用 projection 不需要每次全量重建。
+- projection cache 可由 JSONL 事件流安全重建，不成为事实源。
+- compaction/branch 边界不会破坏 task graph、karma ledger 和 action gate。

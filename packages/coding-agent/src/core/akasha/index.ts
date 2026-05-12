@@ -154,6 +154,13 @@ export type {
 } from "./task-model.js";
 export { buildAkashaTaskModel } from "./task-model.js";
 export type {
+	AkashaTaskGraphEdgeExpectation,
+	AkashaTemporalBehaviorEvalCase,
+	AkashaTemporalBehaviorEvalFailure,
+	AkashaTemporalBehaviorEvalResult,
+} from "./temporal-behavior-eval.js";
+export { formatAkashaTemporalBehaviorEvalResult, runAkashaTemporalBehaviorEval } from "./temporal-behavior-eval.js";
+export type {
 	AkashaActionContextBuildOptions,
 	AkashaActionContextBuildResult,
 	AkashaTemporalKernelOptions,
@@ -171,6 +178,27 @@ export type {
 	AkashaTemporalState,
 } from "./temporal-state.js";
 export { buildTemporalState } from "./temporal-state.js";
+export type {
+	AkashaTimeSyscallContext,
+	AkashaTimeSyscallToolName,
+	CheckPredictionInput,
+	CreateCommitmentInput,
+	CreatePredictionInput,
+	ResolveCommitmentInput,
+} from "./time-syscalls.js";
+export {
+	AKASHA_TIME_SYSCALL_TOOL_NAMES,
+	appendAkashaCommitment,
+	appendAkashaCommitmentResolution,
+	appendAkashaPrediction,
+	appendAkashaPredictionCheck,
+	checkPredictionSchema,
+	createCommitmentSchema,
+	createPredictionSchema,
+	eventToolResult,
+	isAkashaTimeSyscallToolName,
+	resolveCommitmentSchema,
+} from "./time-syscalls.js";
 export type { AkashaToolGateDecision, AkashaToolGateOptions } from "./tool-gate.js";
 export { evaluateAkashaToolGate, findDangerousCommandPattern } from "./tool-gate.js";
 export type {

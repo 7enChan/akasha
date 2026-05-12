@@ -6,6 +6,7 @@ export interface AkashaCrystalPayload {
 	statement: string;
 	timeRange: { from: string; to: string };
 	supportingEventIds: string[];
+	sourceEventIds: string[];
 	confidence: number;
 	expiresAt?: string;
 }
@@ -36,6 +37,7 @@ export function toMemoryCrystalDraft(
 			...crystalEvent.payload,
 			sourceEventKind: crystalEvent.kind,
 			sourceEventId: crystalEvent.eventId,
+			sourceEventIds: crystalSourceEventIds(crystalEvent),
 		},
 		importance: Math.max(0.75, crystalEvent.importance),
 		ttlPolicy: "long_term",
@@ -62,6 +64,7 @@ function createFailureLessonDrafts(events: AkashaEvent[], sessionId: string, str
 			statement: `${toolName} failed ${failures.length} times in this session; check assumptions and command setup before retrying.`,
 			timeRange: { from: first.eventTime, to: last.eventTime },
 			supportingEventIds: failures.map((event) => event.eventId),
+			sourceEventIds: failures.map((event) => event.eventId),
 			confidence: Math.min(0.95, 0.55 + failures.length * 0.1),
 		};
 		drafts.push({
@@ -93,6 +96,7 @@ function createPreferenceDrafts(events: AkashaEvent[], sessionId: string, stream
 		statement: `User stated a preference: ${payloadText(last)}`,
 		timeRange: { from: preferenceEvents[0]!.eventTime, to: last.eventTime },
 		supportingEventIds: [last.eventId],
+		sourceEventIds: [last.eventId],
 		confidence: 0.65,
 	};
 	return [
@@ -117,6 +121,14 @@ function payloadText(event: AkashaEvent): string {
 	if (typeof event.payload.text === "string") return event.payload.text;
 	if (typeof event.payload.summary === "string") return event.payload.summary;
 	return "";
+}
+
+function crystalSourceEventIds(crystalEvent: AkashaEvent): string[] {
+	const sourceIds = crystalEvent.payload.sourceEventIds;
+	if (Array.isArray(sourceIds)) return sourceIds.filter((item): item is string => typeof item === "string");
+	const supportingIds = crystalEvent.payload.supportingEventIds;
+	if (Array.isArray(supportingIds)) return supportingIds.filter((item): item is string => typeof item === "string");
+	return crystalEvent.parentEventIds;
 }
 
 function looksLikePreference(text: string): boolean {

@@ -1,4 +1,5 @@
 import { createCrystalDrafts, toMemoryCrystalDraft } from "./crystals.js";
+import { projectAkashaGovernedEvents } from "./governance-projection.js";
 import type { AkashaEvent, AkashaStore } from "./types.js";
 
 export interface AkashaReflectionPassOptions {
@@ -19,11 +20,13 @@ export function runReflectionPass(
 	store: AkashaStore,
 	options: AkashaReflectionPassOptions = {},
 ): AkashaReflectionPassResult {
-	const events = store.buildTimeline({ limit: options.limit ?? 500 });
-	const sessionId = options.sessionId ?? events.at(-1)?.sessionId ?? "unknown";
-	const streamId = options.streamId ?? events.at(-1)?.streamId ?? `session:${sessionId}`;
+	const rawEvents = store.buildTimeline({ limit: options.limit ?? 500 });
+	const projection = projectAkashaGovernedEvents(rawEvents);
+	const events = projection.events;
+	const sessionId = options.sessionId ?? rawEvents.at(-1)?.sessionId ?? events.at(-1)?.sessionId ?? "unknown";
+	const streamId = options.streamId ?? rawEvents.at(-1)?.streamId ?? events.at(-1)?.streamId ?? `session:${sessionId}`;
 	const now = options.now?.() ?? new Date().toISOString();
-	const parentEventIds = events.length > 0 ? [events[events.length - 1]!.eventId] : [];
+	const parentEventIds = rawEvents.length > 0 ? [rawEvents[rawEvents.length - 1]!.eventId] : [];
 
 	const started = store.append({
 		kind: "reflection.started",
@@ -35,7 +38,9 @@ export function runReflectionPass(
 		sourceKey: `reflection:${sessionId}:${now}:started`,
 		parentEventIds,
 		payload: {
-			eventCount: events.length,
+			eventCount: rawEvents.length,
+			governedEventCount: events.length,
+			omittedDerivedEventCount: projection.omittedDerivedEventIds.length,
 			limit: options.limit ?? 500,
 		},
 		importance: 0.55,

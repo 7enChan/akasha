@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildTemporalBriefWithEmbeddings } from "../src/core/akasha/brief.js";
-import { indexAkashaEmbeddings } from "../src/core/akasha/embedding-indexer.js";
+import { eventEmbeddingText, indexAkashaEmbeddings } from "../src/core/akasha/embedding-indexer.js";
 import { HashAkashaEmbeddingProvider } from "../src/core/akasha/embedding-provider.js";
 import { InMemoryAkashaEmbeddingStore, JsonlAkashaEmbeddingStore } from "../src/core/akasha/embedding-store.js";
 import { JsonlAkashaStore } from "../src/core/akasha/jsonl-store.js";
@@ -48,6 +48,21 @@ describe("Akasha embeddings", () => {
 
 		expect(first).toMatchObject({ considered: 1, indexed: 1, skipped: 0 });
 		expect(second).toMatchObject({ considered: 1, indexed: 0, skipped: 1 });
+	});
+
+	it("extracts crystal and calibration text for embeddings", () => {
+		expect(
+			eventEmbeddingText(event(1, "memory.crystal.created", { statement: "User prefers explicit time syscalls" })),
+		).toContain("User prefers explicit time syscalls");
+		expect(
+			eventEmbeddingText(
+				event(2, "prediction.corrected", {
+					claim: "Build will pass",
+					actual: "Build failed",
+					correction: "Run typecheck before claiming completion",
+				}),
+			),
+		).toContain("Build failed");
 	});
 
 	it("uses semantic temporal recall when building a brief", async () => {

@@ -69,6 +69,23 @@ Akasha projections apply governance before injecting hidden context. Suppressed 
 
 Artifact validation is scoped. Broad commands such as `npm test` are recorded as validation evidence, but an artifact is marked verified only when the command explicitly references that file path, basename, or stem.
 
+## Time Syscalls
+
+Akasha registers explicit time tools when enabled:
+
+```text
+akasha_create_commitment
+akasha_resolve_commitment
+akasha_create_prediction
+akasha_check_prediction
+```
+
+These tools write first-class `promise.*` and `prediction.*` events with source metadata. Natural-language extraction remains as a fallback, but assistant responses that call an Akasha syscall tool do not also create duplicate heuristic commitments.
+
+## Long-term Memory
+
+Reflection and embeddings remain opt-in. When enabled, reflection runs over governed events, so suppressed/redacted sources do not become long-term crystals. Crystal payloads include `sourceEventIds` for auditability and governance propagation.
+
 ## Storage
 
 By default, Akasha writes event logs under:

@@ -12,6 +12,7 @@ import type {
 	ExtensionHandler,
 	RegisteredCommand,
 	ToolCallEvent,
+	ToolDefinition,
 	ToolResultEvent,
 } from "../src/core/extensions/types.js";
 import { SessionManager } from "../src/core/session-manager.js";
@@ -137,6 +138,20 @@ describe("Akasha collector extension", () => {
 		expect(customMessageContent(gate)).toContain("Temporal control facts");
 		expect(customMessageContent(brief)).toContain("src/app.ts");
 
+		const syscallTool = extension.tools.get("akasha_create_commitment");
+		expect(syscallTool).toBeDefined();
+		await syscallTool?.execute(
+			"call-akasha-commitment",
+			{
+				summary: "Validate explicit Akasha syscall tools",
+				dueTime: "2026-05-12T00:00:00.000Z",
+				resolutionCriteria: "tool execution appends a promise.created event",
+			},
+			undefined,
+			undefined,
+			ctx,
+		);
+
 		const logPath = resolveAkashaEventLogPath({}, agentDir, sessionManager.getSessionId());
 		const lines = readFileSync(logPath, "utf-8")
 			.split(/\r?\n/)
@@ -165,6 +180,9 @@ describe("Akasha collector extension", () => {
 				"action_gate.injected",
 			]),
 		);
+		expect(
+			lines.some((line) => line.kind === "promise.created" && line.toolCallId === "call-akasha-commitment"),
+		).toBe(true);
 		const completed = lines.find((line) => line.kind === "tool.completed" && line.toolCallId === "call-1");
 		const resultMessage = lines.find((line) => line.kind === "message.tool_result.recorded");
 		expect(completed).toBeDefined();
@@ -248,6 +266,34 @@ describe("Akasha collector extension", () => {
 		});
 	});
 
+	it("does not duplicate heuristic promises when assistant uses explicit Akasha syscalls", async () => {
+		const extension = createFakeExtension();
+		await createAkashaCollectorExtension({
+			agentDir,
+			settings: SettingsManager.inMemory({
+				akasha: {
+					enabled: true,
+				},
+			}).getAkashaSettings(),
+		})(extension.pi);
+		const ctx = fakeContext(cwd, sessionManager);
+
+		await extension.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+		await extension.emit(
+			"message_end",
+			{
+				type: "message_end",
+				message: assistantMessageWithToolCall("call-akasha", "akasha_create_commitment"),
+			},
+			ctx,
+		);
+
+		const logPath = resolveAkashaEventLogPath({}, agentDir, sessionManager.getSessionId());
+		const contents = readFileSync(logPath, "utf-8");
+		expect(contents).toContain('"kind":"message.agent.completed"');
+		expect(contents).not.toContain('"kind":"promise.created"');
+	});
+
 	it("blocks dangerous tool calls when hard tool gate is enabled", async () => {
 		const extension = createFakeExtension();
 		await createAkashaCollectorExtension({
@@ -285,12 +331,12 @@ describe("Akasha collector extension", () => {
 	});
 });
 
-function assistantMessageWithToolCall(toolCallId: string): AgentMessage {
+function assistantMessageWithToolCall(toolCallId: string, toolName = "read"): AgentMessage {
 	return {
 		role: "assistant",
 		content: [
 			{ type: "text", text: "I will inspect the file. The read should work." },
-			{ type: "toolCall", id: toolCallId, name: "read", arguments: { path: "src/app.ts" } },
+			{ type: "toolCall", id: toolCallId, name: toolName, arguments: { path: "src/app.ts" } },
 		],
 		api: "openai-responses",
 		provider: "openai",
@@ -336,15 +382,20 @@ function customMessageContent(message: AgentMessage | undefined): string {
 function createFakeExtension(): {
 	pi: ExtensionAPI;
 	commands: Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">>;
+	tools: Map<string, ToolDefinition>;
 	emit: (eventType: string, event: unknown, ctx: ExtensionContext) => Promise<unknown>;
 } {
 	const handlers = new Map<string, ExtensionHandler<unknown, unknown>[]>();
 	const commands = new Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">>();
+	const tools = new Map<string, ToolDefinition>();
 	const pi = {
 		on(event: string, handler: ExtensionHandler<unknown, unknown>): void {
 			const existing = handlers.get(event) ?? [];
 			existing.push(handler);
 			handlers.set(event, existing);
+		},
+		registerTool(tool: ToolDefinition): void {
+			tools.set(tool.name, tool);
 		},
 		registerCommand(name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">): void {
 			commands.set(name, options);
@@ -354,6 +405,7 @@ function createFakeExtension(): {
 	return {
 		pi,
 		commands,
+		tools,
 		emit: async (eventType, event, ctx) => {
 			let result: unknown;
 			for (const handler of handlers.get(eventType) ?? []) {
