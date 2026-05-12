@@ -180,6 +180,8 @@ describe("Akasha collector extension", () => {
 		await command?.handler("project-state", fakeCommandContext(notices));
 		await command?.handler("user-timeline", fakeCommandContext(notices));
 		await command?.handler("action-gate", fakeCommandContext(notices));
+		await command?.handler("queue", fakeCommandContext(notices));
+		await command?.handler("task-model", fakeCommandContext(notices));
 		await command?.handler("karma", fakeCommandContext(notices));
 		await command?.handler("governance", fakeCommandContext(notices));
 		await command?.handler("doctor", fakeCommandContext(notices));
@@ -190,6 +192,8 @@ describe("Akasha collector extension", () => {
 		expect(notices.join("\n")).toContain("Current goal");
 		expect(notices.join("\n")).toContain("User timeline:");
 		expect(notices.join("\n")).toContain("<akasha_action_gate>");
+		expect(notices.join("\n")).toContain("Akasha daemon queue:");
+		expect(notices.join("\n")).toContain("Task model:");
 		expect(notices.join("\n")).toContain("Karma:");
 		expect(notices.join("\n")).toContain("Governance:");
 		expect(notices.join("\n")).toContain("Akasha doctor:");
@@ -271,6 +275,7 @@ describe("Akasha collector extension", () => {
 
 		const logPath = resolveAkashaEventLogPath({}, agentDir, sessionManager.getSessionId());
 		const contents = readFileSync(logPath, "utf-8");
+		expect(contents).toContain('"kind":"policy.evaluated"');
 		expect(contents).toContain('"kind":"tool.blocked"');
 	});
 });

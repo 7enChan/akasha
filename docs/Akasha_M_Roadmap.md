@@ -346,6 +346,33 @@ agent proposes
 - Detached runner 可被 slash command 调用，也可以被后续 CLI/cron 复用。
 - User Timeline 默认应用 redaction 和 suppression，不把被撤回事实继续注入行动上下文。
 
+## M12：Policy Kernel、Daemon Queue 与 Typed Task Model
+
+**目标：** 把时间事实从“可查询、可阻断、可维护”推进到“可被统一策略解释、可由时间回调驱动、可投影为任务/目标/风险模型”。
+
+**核心能力：**
+
+- Policy Kernel：将行动前判断统一抽象为 `allow`、`block`、`require_confirmation`、`require_validation`、`defer` 等策略决策，不再把所有规则散落在 tool gate 内。
+- Daemon Callback Queue：从 promise、prediction、retention、reflection 中派生 `time.callback.due`，让未来责任成为时间流中的一等事件。
+- Typed Task Model：从事件流重建 goals、tasks、decisions、risks，让 Akasha 开始具备“当前工作状态”的统一类型投影。
+- Slash Command Inspection：通过 `/akasha queue` 和 `/akasha task-model` 审计 daemon 队列与任务模型，而不是只看原始 timeline。
+
+**新增事件类型：**
+
+- `policy.evaluated`
+- `daemon.tick`
+- `time.callback.scheduled`
+- `time.callback.due`
+- `time.callback.completed`
+
+**退出标准：**
+
+- tool gate 使用 Policy Kernel 给出统一可解释决策。
+- detached maintenance 能追加 daemon tick，并把 due callback 写回事件流。
+- `/akasha queue` 可预览当前会话中已到期的 promise、prediction、retention、reflection callback。
+- `/akasha task-model` 能输出当前目标、任务、决策与风险，且全部可从 JSONL 重建。
+- temporal recall 会优先保留 due callback、非 allow policy、blocked tool、未验证文件等关键时间事实。
+
 ## 阶段依赖图
 
 ```text
@@ -363,6 +390,7 @@ M0 Event Ontology
 	                    -> M9 Governance / Trust
 	                      -> M10 Time OS Control Plane
 	                        -> M11 Runtime Enforcement / Governance
+	                          -> M12 Policy Kernel / Daemon Queue / Task Model
 ```
 
 ## 每阶段通用质量门槛
@@ -377,35 +405,34 @@ M0 Event Ontology
 
 ## 当前优先级
 
-当前已进入 **M11 Runtime Enforcement / Governance** 切片。原因是：M10 已经能把时间事实注入行动前上下文，下一步要让 Akasha 具备可执行约束、离线维护入口和用户可治理的长期记忆。
+当前已进入 **M12 Policy Kernel / Daemon Queue / Task Model** 切片。原因是：M11 已经具备硬门控、离线维护和记忆治理，下一步要把这些能力统一进策略内核、时间回调队列和类型化任务投影。
 
 推荐下一轮开发标题：
 
 ```text
-Akasha M11: Runtime Enforcement and Memory Governance
+Akasha M12: Policy Kernel, Daemon Queue, and Typed Task Model
 ```
 
 建议第一批文件边界：
 
+- `packages/coding-agent/src/core/akasha/policy-kernel.ts`
+- `packages/coding-agent/src/core/akasha/daemon-queue.ts`
+- `packages/coding-agent/src/core/akasha/task-model.ts`
 - `packages/coding-agent/src/core/akasha/tool-gate.ts`
 - `packages/coding-agent/src/core/akasha/maintenance-runner.ts`
-- `packages/coding-agent/src/core/akasha/memory-governance.ts`
-- `packages/coding-agent/test/akasha-tool-gate.test.ts`
-- `packages/coding-agent/test/akasha-maintenance-runner.test.ts`
-- `packages/coding-agent/test/akasha-memory-governance.test.ts`
+- `packages/coding-agent/test/akasha-policy-kernel.test.ts`
+- `packages/coding-agent/test/akasha-daemon-queue.test.ts`
+- `packages/coding-agent/test/akasha-task-model.test.ts`
 
 建议第一批命令：
 
+- `/akasha queue`
+- `/akasha task-model`
 - `/akasha maintain [session|project|all]`
-- `/akasha memory-review`
-- `/akasha memory-pin <eventId>`
-- `/akasha memory-unpin <eventId>`
-- `/akasha memory-suppress <eventId>`
-- `/akasha redact <eventId> <field> [reason]`
 
 建议第一批验收：
 
-- 显式开启 `akasha.actionGate.enforceToolGate` 后，危险命令会在执行前被阻断。
-- `/akasha maintain all` 能扫描所有本地事件日志并运行维护。
-- `/akasha memory-suppress <eventId>` 后，User Timeline 不再使用该事实。
-- `/akasha redact <eventId> payload.text privacy` 后，召回和导出默认看到 redacted projection。
+- destructive command 和 unverified artifact widening 都能通过 Policy Kernel 返回可解释策略。
+- `/akasha queue` 能列出 due callback，但不写入事件流。
+- `/akasha maintain session` 能写入 `daemon.tick` 和 `time.callback.due`。
+- `/akasha task-model` 能把目标、任务、决策、风险从事件流重建出来。

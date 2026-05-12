@@ -1,0 +1,64 @@
+import { describe, expect, it } from "vitest";
+import { evaluateAkashaPolicy } from "../src/core/akasha/policy-kernel.js";
+
+describe("Akasha policy kernel", () => {
+	it("allows actions when no policy rule matches", () => {
+		const decision = evaluateAkashaPolicy({
+			actionType: "tool_call",
+			rules: [{ id: "destructive_command", description: "Block destructive commands", severity: "critical" }],
+			payload: {},
+		});
+
+		expect(decision).toMatchObject({ action: "allow", severity: "info" });
+	});
+
+	it("blocks destructive command policy matches", () => {
+		const decision = evaluateAkashaPolicy({
+			actionType: "tool_call",
+			payload: { dangerousCommandLabel: "git reset hard" },
+			rules: [{ id: "destructive_command", description: "Block destructive commands", severity: "critical" }],
+		});
+
+		expect(decision).toMatchObject({
+			action: "block",
+			ruleId: "destructive_command",
+			severity: "critical",
+		});
+	});
+
+	it("requires validation when evidence shows unverified artifacts", () => {
+		const decision = evaluateAkashaPolicy({
+			actionType: "tool_call",
+			evidenceEvents: [
+				{
+					eventId: "evt-1",
+					kind: "artifact.patched",
+					sessionId: "session-1",
+					streamId: "session:session-1",
+					sequence: 1,
+					eventTime: "2026-05-12T00:00:00.000Z",
+					recordedTime: "2026-05-12T00:00:00.000Z",
+					actor: "tool",
+					parentEventIds: [],
+					payload: { path: "src/app.ts" },
+					importance: 0.9,
+					ttlPolicy: "long_term",
+					version: 1,
+				},
+			],
+			rules: [
+				{
+					id: "unverified_artifact_widening",
+					description: "Require validation before widening edits",
+					severity: "warning",
+				},
+			],
+		});
+
+		expect(decision).toMatchObject({
+			action: "require_validation",
+			ruleId: "unverified_artifact_widening",
+			evidenceEventIds: ["evt-1"],
+		});
+	});
+});

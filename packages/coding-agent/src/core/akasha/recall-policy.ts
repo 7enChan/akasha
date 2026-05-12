@@ -5,7 +5,9 @@ const KIND_PRIORITY: Partial<Record<AkashaEvent["kind"], number>> = {
 	"artifact.patched": 10,
 	"artifact.written": 10,
 	"tool.blocked": 10,
+	"time.callback.due": 10,
 	"tool.completed": 9,
+	"policy.evaluated": 9,
 	"command.executed": 8,
 	"message.user.submitted": 8,
 	"context.compacted": 7,
@@ -45,6 +47,8 @@ function scoreEvent(
 	score += Math.max(0, 8 - recencyIndex * 0.25);
 	if (event.kind === "tool.completed" && event.payload.isError === true) score += 8;
 	if (event.kind === "tool.blocked") score += 8;
+	if (event.kind === "time.callback.due") score += 8;
+	if (event.kind === "policy.evaluated" && event.payload.action !== "allow") score += 6;
 	if (event.kind === "artifact.patched" || event.kind === "artifact.written") score += 5;
 	if (event.kind === "prediction.corrected" || event.kind === "failure.lesson_learned") score += 6;
 	if (unresolvedRootIds.has(event.eventId)) score += 10;

@@ -1,4 +1,5 @@
 import type { ResolvedAkashaReflectionSettings } from "../settings-manager.js";
+import { runAkashaDaemonQueuePass } from "./daemon-queue.js";
 import { JsonlAkashaStore } from "./jsonl-store.js";
 import { runAkashaMaintenancePass } from "./maintenance.js";
 import { buildAkashaSessionIndex } from "./session-index.js";
@@ -20,6 +21,7 @@ export interface AkashaDetachedMaintenanceSessionResult {
 	sessionId: string;
 	eventLogPath: string;
 	appendedCount: number;
+	dueCallbackCount: number;
 	openLoopCount: number;
 	schedulerCount: number;
 	embeddingIndexed: number;
@@ -58,14 +60,24 @@ export async function runAkashaDetachedMaintenance(
 				limit: options.limit,
 				now: options.now,
 			});
+			const daemon = runAkashaDaemonQueuePass(store, {
+				reflection: options.reflection,
+				now: options.now,
+			});
 			const reflectionCount = result.reflection
 				? 2 + result.reflection.crystals.length + result.reflection.memoryCrystals.length
 				: 0;
-			const appendedCount = result.openLoopEvents.length + result.schedulerEvents.length + reflectionCount;
+			const appendedCount =
+				result.openLoopEvents.length +
+				result.schedulerEvents.length +
+				reflectionCount +
+				1 +
+				daemon.dueCallbacks.length;
 			results.push({
 				sessionId: session.sessionId,
 				eventLogPath: session.eventLogPath,
 				appendedCount,
+				dueCallbackCount: daemon.dueCallbacks.length,
 				openLoopCount: result.openLoopEvents.length,
 				schedulerCount: result.schedulerEvents.length,
 				embeddingIndexed: result.embeddingIndexed,
@@ -77,6 +89,7 @@ export async function runAkashaDetachedMaintenance(
 				sessionId: session.sessionId,
 				eventLogPath: session.eventLogPath,
 				appendedCount: 0,
+				dueCallbackCount: 0,
 				openLoopCount: 0,
 				schedulerCount: 0,
 				embeddingIndexed: 0,

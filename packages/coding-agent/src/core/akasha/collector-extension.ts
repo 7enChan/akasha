@@ -400,6 +400,36 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 				settings: options.settings.actionGate,
 				timelineEvents: store?.buildTimeline({ limit: 500 }) ?? [],
 			});
+			let policyEventId: string | undefined;
+			if (gateDecision.rule) {
+				const policy = append(
+					baseDraft(
+						"policy.evaluated",
+						{
+							actionType: "tool_call",
+							subject: event.toolName,
+							objectId: event.toolName,
+							action: gateDecision.action ?? (gateDecision.allow ? "allow" : "block"),
+							severity: gateDecision.severity ?? "warning",
+							reason: gateDecision.reason,
+							ruleId: gateDecision.rule,
+							evidenceEventIds: gateDecision.eventIds,
+						},
+						{
+							actor: "system",
+							subjectId: "akasha.policy_kernel",
+							objectId: event.toolName,
+							toolCallId: event.toolCallId,
+							sourceKey: `tool-call:${sessionId}:${event.toolCallId}:policy:${gateDecision.rule}`,
+							parentEventIds,
+							correlationId: currentTurnEventId,
+							importance: gateDecision.allow ? 0.55 : 0.9,
+							ttlPolicy: "long_term",
+						},
+					),
+				);
+				policyEventId = policy?.eventId;
+			}
 			if (!gateDecision.allow) {
 				append(
 					baseDraft(
@@ -416,7 +446,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 							objectId: event.toolName,
 							toolCallId: event.toolCallId,
 							sourceKey: `tool-call:${sessionId}:${event.toolCallId}:blocked`,
-							parentEventIds,
+							parentEventIds: parents(policyEventId, ...parentEventIds),
 							correlationId: currentTurnEventId,
 							importance: 0.95,
 							ttlPolicy: "long_term",

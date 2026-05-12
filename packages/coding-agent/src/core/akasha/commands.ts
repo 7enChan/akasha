@@ -1,6 +1,8 @@
 import type { ExtensionAPI } from "../extensions/types.js";
 import type { ResolvedAkashaReflectionSettings } from "../settings-manager.js";
 import { buildAkashaActionGateContext } from "./action-gate.js";
+import type { AkashaDaemonQueueItem } from "./daemon-queue.js";
+import { buildAkashaDaemonQueue } from "./daemon-queue.js";
 import type { AkashaDoctorReport } from "./doctor.js";
 import { buildAkashaDoctorReport } from "./doctor.js";
 import { JsonlAkashaStore } from "./jsonl-store.js";
@@ -16,6 +18,8 @@ import type { AkashaRetentionPlan } from "./retention.js";
 import { planAkashaRetention } from "./retention.js";
 import { runAkashaSchedulerPass } from "./scheduler.js";
 import { buildAkashaSessionIndex } from "./session-index.js";
+import type { AkashaTaskModel } from "./task-model.js";
+import { buildAkashaTaskModel } from "./task-model.js";
 import type { AkashaOpenLoopCandidate, AkashaTemporalState } from "./temporal-state.js";
 import { buildTemporalState } from "./temporal-state.js";
 import type { AkashaEvent, AkashaStore } from "./types.js";
@@ -37,7 +41,7 @@ export function registerAkashaCommands(
 ): void {
 	pi.registerCommand("akasha", {
 		description:
-			"Inspect Akasha time events: /akasha status | timeline [n] | project-timeline [n] | user-timeline | action-gate | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | karma | scheduler | governance | doctor",
+			"Inspect Akasha time events: /akasha status | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
 		getArgumentCompletions: (prefix) => {
 			const commands = [
 				"status",
@@ -45,6 +49,7 @@ export function registerAkashaCommands(
 				"project-timeline",
 				"user-timeline",
 				"action-gate",
+				"queue",
 				"maintain",
 				"memory-review",
 				"memory-pin",
@@ -55,6 +60,7 @@ export function registerAkashaCommands(
 				"explain-current",
 				"open-loops",
 				"project-state",
+				"task-model",
 				"karma",
 				"scheduler",
 				"governance",
@@ -150,6 +156,22 @@ export function registerAkashaCommands(
 					userTimeline,
 				});
 				ctx.ui.notify(gate?.text ?? "No Akasha action gate context is currently due.", "info");
+				return;
+			}
+
+			if (subcommand === "queue") {
+				if (!options) {
+					ctx.ui.notify("Akasha daemon queue is unavailable without command options.", "warning");
+					return;
+				}
+				ctx.ui.notify(
+					formatDaemonQueue(
+						buildAkashaDaemonQueue(store.buildTimeline({ limit: 1000 }), {
+							reflection: options.reflection,
+						}),
+					),
+					"info",
+				);
 				return;
 			}
 
@@ -295,6 +317,11 @@ export function registerAkashaCommands(
 				return;
 			}
 
+			if (subcommand === "task-model") {
+				ctx.ui.notify(formatTaskModel(buildAkashaTaskModel(store.buildTimeline({ limit: 1000 }))), "info");
+				return;
+			}
+
 			if (subcommand === "karma") {
 				ctx.ui.notify(formatKarmaLedger(buildKarmaLedger(store.buildTimeline({ limit: 1000 }))), "info");
 				return;
@@ -327,7 +354,7 @@ export function registerAkashaCommands(
 			}
 
 			ctx.ui.notify(
-				"Usage: /akasha status | timeline [n] | project-timeline [n] | user-timeline | action-gate | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | karma | scheduler | governance | doctor",
+				"Usage: /akasha status | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
 				"warning",
 			);
 		},
@@ -467,6 +494,65 @@ function formatKarmaLedger(ledger: AkashaKarmaLedger): string {
 	return lines.join("\n");
 }
 
+function formatDaemonQueue(queue: AkashaDaemonQueueItem[]): string {
+	const lines = [`Akasha daemon queue: ${queue.length} due callbacks`];
+	if (queue.length === 0) {
+		lines.push("- (none)");
+		return lines.join("\n");
+	}
+	for (const item of queue.slice(0, 12)) {
+		const target = item.targetEventId ? ` target=${item.targetEventId}` : "";
+		lines.push(`- ${item.kind} due=${item.dueTime}${target}: ${item.summary}`);
+	}
+	return lines.join("\n");
+}
+
+function formatTaskModel(model: AkashaTaskModel): string {
+	const lines = [
+		`Task model: ${model.goals.length} goals, ${model.tasks.length} tasks, ${model.decisions.length} decisions, ${model.risks.length} risks`,
+		"",
+		"Goals:",
+	];
+	if (model.goals.length === 0) {
+		lines.push("- (none)");
+	} else {
+		for (const goal of model.goals.slice(0, 6)) {
+			lines.push(`- ${goal.status}: ${goal.text}`);
+		}
+	}
+
+	lines.push("", "Tasks:");
+	if (model.tasks.length === 0) {
+		lines.push("- (none)");
+	} else {
+		for (const task of model.tasks.slice(0, 8)) {
+			const due = task.dueTime ? ` due ${task.dueTime}` : "";
+			lines.push(`- ${task.status}${due}: ${task.text}`);
+		}
+	}
+
+	lines.push("", "Risks:");
+	if (model.risks.length === 0) {
+		lines.push("- (none)");
+	} else {
+		for (const risk of model.risks.slice(0, 8)) {
+			const target = risk.objectId ? ` ${risk.objectId}` : "";
+			lines.push(`- ${risk.severity} ${risk.reason}${target}: ${risk.text}`);
+		}
+	}
+
+	lines.push("", "Decisions:");
+	if (model.decisions.length === 0) {
+		lines.push("- (none)");
+	} else {
+		for (const decision of model.decisions.slice(0, 8)) {
+			lines.push(`- ${decision.kind}: ${decision.text}`);
+		}
+	}
+
+	return lines.join("\n");
+}
+
 function formatRetentionPlan(plan: AkashaRetentionPlan): string {
 	const lines = [
 		`Governance: ${plan.keepCount} keep, ${plan.archiveCount} archive, ${plan.redactPayloadCount} redact payload`,
@@ -501,7 +587,7 @@ function formatDetachedMaintenanceResult(result: Awaited<ReturnType<typeof runAk
 	for (const session of result.sessions.slice(0, 8)) {
 		const error = session.error ? ` error=${session.error}` : "";
 		lines.push(
-			`- ${session.sessionId}: appended=${session.appendedCount} loops=${session.openLoopCount} scheduler=${session.schedulerCount} reflection=${session.reflectionCreated}${error}`,
+			`- ${session.sessionId}: appended=${session.appendedCount} callbacks=${session.dueCallbackCount} loops=${session.openLoopCount} scheduler=${session.schedulerCount} reflection=${session.reflectionCreated}${error}`,
 		);
 	}
 	if (result.errors.length > 0) {

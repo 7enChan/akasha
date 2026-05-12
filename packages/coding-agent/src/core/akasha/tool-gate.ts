@@ -1,10 +1,14 @@
 import type { ToolCallEvent } from "../extensions/types.js";
 import type { ResolvedAkashaActionGateSettings } from "../settings-manager.js";
+import type { AkashaPolicyDecisionAction } from "./policy-kernel.js";
+import { evaluateAkashaPolicy } from "./policy-kernel.js";
 import type { AkashaEvent } from "./types.js";
 import { buildProjectState } from "./world-model.js";
 
 export interface AkashaToolGateDecision {
 	allow: boolean;
+	action?: AkashaPolicyDecisionAction;
+	severity?: "info" | "warning" | "critical";
 	rule?: string;
 	reason?: string;
 	eventIds: string[];
@@ -22,10 +26,20 @@ export function evaluateAkashaToolGate(event: ToolCallEvent, options: AkashaTool
 		const command = typeof event.input.command === "string" ? event.input.command : "";
 		const match = findDangerousCommandPattern(command);
 		if (match) {
-			return blockDecision(
-				"destructive_command",
-				`Akasha blocked a high-risk command before execution: ${match.label}`,
-				[],
+			return fromPolicyDecision(
+				evaluateAkashaPolicy({
+					actionType: "tool_call",
+					subject: event.toolName,
+					objectId: command,
+					payload: { dangerousCommandLabel: match.label },
+					rules: [
+						{
+							id: "destructive_command",
+							description: "Block high-risk destructive shell commands.",
+							severity: "critical",
+						},
+					],
+				}),
 			);
 		}
 	}
@@ -36,10 +50,24 @@ export function evaluateAkashaToolGate(event: ToolCallEvent, options: AkashaTool
 		const unverified = state.activeFiles.filter((file) => file.status === "modified_unverified");
 		const wideningChange = unverified.length > 0 && !unverified.some((file) => file.path === targetPath);
 		if (wideningChange) {
-			return blockDecision(
-				"unverified_artifact_widening",
-				"Akasha blocked editing another artifact while previous modifications are still unverified.",
-				unverified.map((file) => file.lastEventId),
+			const byId = new Map(options.timelineEvents.map((timelineEvent) => [timelineEvent.eventId, timelineEvent]));
+			return fromPolicyDecision(
+				evaluateAkashaPolicy({
+					actionType: "tool_call",
+					subject: event.toolName,
+					objectId: targetPath,
+					evidenceEvents: unverified.flatMap((file) => {
+						const evidence = byId.get(file.lastEventId);
+						return evidence ? [evidence] : [];
+					}),
+					rules: [
+						{
+							id: "unverified_artifact_widening",
+							description: "Require validation before widening edits to another artifact.",
+							severity: "warning",
+						},
+					],
+				}),
 			);
 		}
 	}
@@ -56,11 +84,18 @@ export function findDangerousCommandPattern(command: string): { label: string } 
 }
 
 function allowDecision(): AkashaToolGateDecision {
-	return { allow: true, eventIds: [] };
+	return { allow: true, action: "allow", severity: "info", eventIds: [] };
 }
 
-function blockDecision(rule: string, reason: string, eventIds: string[]): AkashaToolGateDecision {
-	return { allow: false, rule, reason, eventIds };
+function fromPolicyDecision(decision: ReturnType<typeof evaluateAkashaPolicy>): AkashaToolGateDecision {
+	return {
+		allow: decision.action === "allow",
+		action: decision.action,
+		severity: decision.severity,
+		rule: decision.ruleId,
+		reason: decision.reason,
+		eventIds: decision.evidenceEventIds,
+	};
 }
 
 function isArtifactMutation(event: ToolCallEvent): boolean {

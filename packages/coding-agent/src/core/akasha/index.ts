@@ -12,6 +12,13 @@ export {
 } from "./collector-extension.js";
 export type { AkashaCrystalPayload } from "./crystals.js";
 export { createCrystalDrafts, toMemoryCrystalDraft } from "./crystals.js";
+export type {
+	AkashaCallbackKind,
+	AkashaDaemonQueueItem,
+	AkashaDaemonQueueOptions,
+	AkashaDaemonQueuePassResult,
+} from "./daemon-queue.js";
+export { buildAkashaDaemonQueue, runAkashaDaemonQueuePass } from "./daemon-queue.js";
 export type { AkashaDoctorReport } from "./doctor.js";
 export { buildAkashaDoctorReport } from "./doctor.js";
 export type { AkashaEmbeddingIndexOptions, AkashaEmbeddingIndexResult } from "./embedding-indexer.js";
@@ -65,6 +72,13 @@ export type { AkashaOpenLoopRecord } from "./open-loops.js";
 export { buildOpenLoopLedger, deriveOpenLoopEvents } from "./open-loops.js";
 export { compareAkashaEvents, orderAkashaEvents } from "./ordering.js";
 export type {
+	AkashaPolicyDecision,
+	AkashaPolicyDecisionAction,
+	AkashaPolicyEvaluationInput,
+	AkashaPolicyRule,
+} from "./policy-kernel.js";
+export { createPolicyEvaluatedPayload, evaluateAkashaPolicy } from "./policy-kernel.js";
+export type {
 	AkashaProjectTimeline,
 	AkashaProjectTimelineOptions,
 	AkashaProjectTimelineSession,
@@ -109,6 +123,14 @@ export {
 	loadAkashaProjectTimeline,
 	resolveAkashaEventsDir,
 } from "./session-index.js";
+export type {
+	AkashaDecisionState,
+	AkashaGoalState,
+	AkashaRiskState,
+	AkashaTaskModel,
+	AkashaTaskState,
+} from "./task-model.js";
+export { buildAkashaTaskModel } from "./task-model.js";
 export type { AkashaTemporalRagMatch, AkashaTemporalRagOptions, AkashaTemporalRagResult } from "./temporal-rag.js";
 export { retrieveTemporalContext } from "./temporal-rag.js";
 export type {
