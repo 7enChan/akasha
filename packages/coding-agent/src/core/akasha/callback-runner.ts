@@ -1,7 +1,8 @@
 import type { ResolvedAkashaReflectionSettings } from "../settings-manager.js";
-import { appendAkashaPendingCallbackPrompt } from "./callback-inbox.js";
+import { appendAkashaCallbackInboxEvent, appendAkashaPendingCallbackPrompt } from "./callback-inbox.js";
 import type { AkashaDaemonQueuePassResult } from "./daemon-queue.js";
 import { runAkashaDaemonQueuePass } from "./daemon-queue.js";
+import { projectAkashaGovernedEvents } from "./governance-projection.js";
 import {
 	type AkashaPolicyDecision,
 	type AkashaPolicyRule,
@@ -139,7 +140,7 @@ export function createAkashaCallbackDispatcher(mode: AkashaCallbackDispatchMode)
 	if (normalizedMode === "agent_prompt_file") {
 		return {
 			name: "agent_prompt_file",
-			dispatch: ({ callback, claim, now, agentDir }) => {
+			dispatch: ({ store, callback, claim, now, agentDir }) => {
 				if (!agentDir) {
 					return {
 						status: "failed",
@@ -148,12 +149,18 @@ export function createAkashaCallbackDispatcher(mode: AkashaCallbackDispatchMode)
 					};
 				}
 				const prompt = appendAkashaPendingCallbackPrompt(agentDir, callback, claim, now);
+				const inboxEvent = appendAkashaCallbackInboxEvent(store, "callback.inbox.added", prompt, {
+					eventTime: now.toISOString(),
+					parentEventIds: [claim.eventId, callback.dueEvent.eventId],
+				});
 				return {
 					status: "dispatched",
 					mode: "agent_prompt_file",
 					message: `Queued callback prompt: ${prompt.id}`,
+					outputEventIds: [inboxEvent.eventId],
 					details: {
 						inboxItemId: prompt.id,
+						inboxEventId: inboxEvent.eventId,
 						prompt: prompt.prompt,
 					},
 				};
@@ -303,6 +310,19 @@ function appendCallbackDispatchPolicy(
 	options: AkashaCallbackRunnerOptions,
 	now: Date,
 ): { decision: AkashaPolicyDecision; event: AkashaEvent } {
+	const timeline = store.buildTimeline({ limit: options.limit ?? 1000 });
+	const governed = projectAkashaGovernedEvents(timeline);
+	const suppressedTargetIds = new Set([
+		...governed.suppressedEventIds,
+		...governed.omittedDerivedEventIds,
+		...governed.redactedSourceEventIds,
+	]);
+	const targetSuppressed = callback.targetEventId ? suppressedTargetIds.has(callback.targetEventId) : false;
+	const evidenceEvents = targetSuppressed
+		? timeline.filter(
+				(event) => event.eventId === callback.targetEventId || event.objectId === callback.targetEventId,
+			)
+		: [];
 	const decision = evaluateAkashaRuntimePolicy({
 		type: "callback_dispatch",
 		subject: callback.kind ?? "callback",
@@ -313,7 +333,9 @@ function appendCallbackDispatchPolicy(
 			summary: callback.summary,
 			targetEventId: callback.targetEventId,
 			dispatchMode: options.dispatchMode ?? "record_only",
+			targetSuppressed,
 		},
+		evidenceEvents,
 		rules: options.rules,
 		now,
 	});
@@ -338,7 +360,9 @@ function appendCallbackDispatchPolicy(
 					summary: callback.summary,
 					targetEventId: callback.targetEventId,
 					dispatchMode: options.dispatchMode ?? "record_only",
+					targetSuppressed,
 				},
+				evidenceEvents,
 				rules: options.rules,
 				now,
 			},

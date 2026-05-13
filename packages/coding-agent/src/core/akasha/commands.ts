@@ -2,6 +2,11 @@ import type { ExtensionAPI } from "../extensions/types.js";
 import type { ResolvedAkashaReflectionSettings } from "../settings-manager.js";
 import { SettingsManager } from "../settings-manager.js";
 import { buildAkashaActionGateContext } from "./action-gate.js";
+import {
+	appendAkashaCallbackInboxEvent,
+	appendAkashaCallbackInboxStatus,
+	listAkashaActionableCallbackPrompts,
+} from "./callback-inbox.js";
 import { buildRunnableCallbacks, runAkashaCallbackRunner } from "./callback-runner.js";
 import type { AkashaDaemonQueueItem } from "./daemon-queue.js";
 import {
@@ -303,6 +308,7 @@ export function registerAkashaCommands(
 					evidenceEventId,
 					reason: "user_completed",
 				});
+				consumeInboxForCallback(store, options?.agentDir, callbackId, "consumed", event.eventId);
 				ctx.ui.notify(`Callback completed: ${callbackId} -> ${event.eventId}`, "info");
 				return;
 			}
@@ -315,6 +321,7 @@ export function registerAkashaCommands(
 				}
 				const reason = rest.slice(1).join(" ") || "user_cancelled";
 				const event = markAkashaCallbackCancelled(store, callbackId, { reason });
+				consumeInboxForCallback(store, options?.agentDir, callbackId, "cancelled", event.eventId, reason);
 				ctx.ui.notify(`Callback cancelled: ${callbackId} -> ${event.eventId}`, "info");
 				return;
 			}
@@ -551,6 +558,37 @@ function formatProjectEvent(event: AkashaEvent): string {
 	const target = event.objectId ? ` ${event.objectId}` : "";
 	const tool = event.toolCallId ? ` [${event.toolCallId}]` : "";
 	return `${event.eventTime} ${event.sessionId}#${event.sequence} ${event.kind}${target}${tool}`;
+}
+
+function consumeInboxForCallback(
+	store: AkashaStore,
+	agentDir: string | undefined,
+	callbackId: string,
+	status: "consumed" | "cancelled",
+	parentEventId: string,
+	reason?: string,
+): void {
+	if (!agentDir) return;
+	for (const item of listAkashaActionableCallbackPrompts(agentDir).filter(
+		(candidate) => candidate.prompt.callbackId === callbackId,
+	)) {
+		const event = appendAkashaCallbackInboxEvent(
+			store,
+			status === "consumed" ? "callback.inbox.consumed" : "callback.inbox.cancelled",
+			item.prompt,
+			{
+				parentEventIds: [parentEventId, item.prompt.claimEventId, item.prompt.dueEventId],
+				sourceKeySuffix: `callback-command:${parentEventId}`,
+				reason,
+			},
+		);
+		appendAkashaCallbackInboxStatus(agentDir, item.prompt, {
+			status,
+			eventId: event.eventId,
+			consumerSessionId: event.sessionId,
+			reason,
+		});
+	}
 }
 
 function formatTemporalState(state: AkashaTemporalState): string {

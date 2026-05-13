@@ -2,8 +2,16 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import chalk from "chalk";
 import { CONFIG_DIR_NAME, getAgentDir } from "./config.js";
+import {
+	type AkashaCallbackInboxItem,
+	appendAkashaCallbackInboxEvent,
+	appendAkashaCallbackInboxStatus,
+	listAkashaActionableCallbackPrompts,
+	projectAkashaCallbackInbox,
+} from "./core/akasha/callback-inbox.js";
 import type { AkashaCallbackDispatchMode } from "./core/akasha/callback-runner.js";
 import { buildRunnableCallbacks, runAkashaCallbackRunner } from "./core/akasha/callback-runner.js";
+import { resolveAkashaEventLogPath } from "./core/akasha/collector-extension.js";
 import { buildAkashaDaemonQueue, runAkashaDaemonQueuePass } from "./core/akasha/daemon-queue.js";
 import { JsonlAkashaStore } from "./core/akasha/jsonl-store.js";
 import {
@@ -34,6 +42,7 @@ export async function handleAkashaEntrypointCommand(args: string[], cwd: string)
 		command !== "doctor" &&
 		command !== "daemon" &&
 		command !== "cache" &&
+		command !== "inbox" &&
 		command !== "gateway"
 	) {
 		return false;
@@ -55,6 +64,11 @@ export async function handleAkashaEntrypointCommand(args: string[], cwd: string)
 
 	if (command === "cache") {
 		handleAkashaCacheCommand(args.slice(1), cwd, agentDir, settingsManager);
+		return true;
+	}
+
+	if (command === "inbox") {
+		handleAkashaInboxCommand(args.slice(1), agentDir, settingsManager);
 		return true;
 	}
 
@@ -106,15 +120,17 @@ function printAkashaEntrypointHelp(command?: string): void {
 			? "akasha daemon status|tick|run [--scope current|project|all] [--dispatch record_only|terminal_notification|agent_prompt_file]"
 			: command === "cache"
 				? "akasha cache status|clear|rebuild [--scope current|project|all]"
-				: command === "gateway"
-					? "akasha gateway [setup|status|run|install|uninstall|start|stop|logs]"
-					: command === "doctor"
-						? "akasha doctor"
-						: command === "status"
-							? "akasha status"
-							: command === "enable"
-								? "akasha enable [--global]"
-								: "akasha init [--global]";
+				: command === "inbox"
+					? "akasha inbox status|list|run|consume [id|all]"
+					: command === "gateway"
+						? "akasha gateway [setup|status|run|install|uninstall|start|stop|logs]"
+						: command === "doctor"
+							? "akasha doctor"
+							: command === "status"
+								? "akasha status"
+								: command === "enable"
+									? "akasha enable [--global]"
+									: "akasha init [--global]";
 	console.log(`${chalk.bold("Akasha")} - time-native coding agent
 
 ${chalk.bold("Usage:")}
@@ -127,6 +143,7 @@ ${chalk.bold("Commands:")}
   akasha doctor             Check Akasha runtime health
   akasha daemon ...         Run Akasha daemon operations outside a session
   akasha cache ...          Inspect or rebuild Akasha projection caches
+  akasha inbox ...          Inspect or consume pending callback prompts
   akasha gateway ...        Run the Telegram gateway and Linux service helpers
   akasha                    Start the agent runtime
 
@@ -403,6 +420,89 @@ function handleAkashaCacheCommand(
 	console.log("Usage: akasha cache status|clear|rebuild [--scope current|project|all]");
 }
 
+function handleAkashaInboxCommand(args: string[], agentDir: string, settingsManager: SettingsManager): void {
+	const action = args[0] ?? "status";
+	const settings = settingsManager.getAkashaSettings();
+	const projection = projectAkashaCallbackInbox(agentDir);
+	const actionable = listAkashaActionableCallbackPrompts(agentDir);
+
+	if (action === "status") {
+		console.log("Akasha inbox status");
+		console.log(`- total: ${projection.length}`);
+		console.log(`- pending: ${projection.filter((item) => item.status === "pending").length}`);
+		console.log(`- injected: ${projection.filter((item) => item.status === "injected").length}`);
+		console.log(`- consumed: ${projection.filter((item) => item.status === "consumed").length}`);
+		console.log(`- failed: ${projection.filter((item) => item.status === "failed").length}`);
+		console.log(`- cancelled: ${projection.filter((item) => item.status === "cancelled").length}`);
+		return;
+	}
+
+	if (action === "list") {
+		console.log("Akasha inbox");
+		if (projection.length === 0) {
+			console.log("- (empty)");
+			return;
+		}
+		for (const item of projection) {
+			console.log(`- ${item.prompt.id} [${item.status}] ${item.prompt.summary}`);
+		}
+		return;
+	}
+
+	if (action === "run") {
+		const limit = parseLimit(args, 5);
+		const selected = actionable.slice(0, limit);
+		console.log("Akasha inbox run");
+		if (selected.length === 0) {
+			console.log("- no actionable callback prompts");
+			return;
+		}
+		for (const item of selected) {
+			const store = storeForInboxItem(item, agentDir, settings.eventLogDir);
+			const event = appendAkashaCallbackInboxEvent(store, "callback.inbox.injected", item.prompt, {
+				sourceKeySuffix: "cli-run",
+			});
+			appendAkashaCallbackInboxStatus(agentDir, item.prompt, {
+				status: "injected",
+				eventId: event.eventId,
+				consumerSessionId: item.prompt.sessionId,
+			});
+			console.log(`\n# ${item.prompt.id}`);
+			console.log(item.prompt.prompt);
+		}
+		return;
+	}
+
+	if (action === "consume") {
+		const target = args[1] ?? "";
+		if (!target) {
+			console.log("Usage: akasha inbox consume <id|all>");
+			return;
+		}
+		const selected = target === "all" ? actionable : actionable.filter((item) => item.prompt.id === target);
+		let consumed = 0;
+		for (const item of selected) {
+			const store = storeForInboxItem(item, agentDir, settings.eventLogDir);
+			const event = appendAkashaCallbackInboxEvent(store, "callback.inbox.consumed", item.prompt, {
+				sourceKeySuffix: "cli-consume",
+				reason: "operator_consumed",
+			});
+			appendAkashaCallbackInboxStatus(agentDir, item.prompt, {
+				status: "consumed",
+				eventId: event.eventId,
+				consumerSessionId: item.prompt.sessionId,
+				reason: "operator_consumed",
+			});
+			consumed++;
+		}
+		console.log("Akasha inbox consume");
+		console.log(`- consumed: ${consumed}`);
+		return;
+	}
+
+	console.log("Usage: akasha inbox status|list|run|consume [id|all]");
+}
+
 function loadStoresForScope(
 	cwd: string,
 	agentDir: string,
@@ -421,6 +521,22 @@ function parseScope(args: string[]): "current" | "project" | "all" {
 	const value = index >= 0 ? args[index + 1] : undefined;
 	if (value === "all" || value === "project" || value === "current") return value;
 	return "project";
+}
+
+function parseLimit(args: string[], defaultValue: number): number {
+	const index = args.indexOf("--limit");
+	const value = index >= 0 ? args[index + 1] : undefined;
+	const parsed = value ? Number(value) : defaultValue;
+	if (!Number.isFinite(parsed)) return defaultValue;
+	return Math.max(1, Math.min(50, Math.floor(parsed)));
+}
+
+function storeForInboxItem(
+	item: AkashaCallbackInboxItem,
+	agentDir: string,
+	eventLogDir: string | undefined,
+): JsonlAkashaStore {
+	return new JsonlAkashaStore(resolveAkashaEventLogPath({ eventLogDir }, agentDir, item.prompt.sessionId));
 }
 
 function parseDispatchMode(args: string[]): AkashaCallbackDispatchMode {

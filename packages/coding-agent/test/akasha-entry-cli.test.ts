@@ -108,6 +108,45 @@ describe("Akasha entry CLI", () => {
 		).toContain("Resume from CLI daemon");
 	});
 
+	it("inspects, injects, and consumes callback inbox prompts", async () => {
+		await handleAkashaEntrypointCommand(["init"], projectDir);
+		const store = seedAkashaLog(projectDir);
+		store.append({
+			kind: "time.callback.due",
+			sessionId: "session-1",
+			streamId: "session:session-1",
+			eventTime: "2026-05-12T00:00:00.000Z",
+			actor: "system",
+			payload: {
+				callbackId: "callback-inbox-entry",
+				kind: "scheduled_callback",
+				summary: "Handle the pending inbox callback",
+			},
+			ttlPolicy: "long_term",
+		});
+		await handleAkashaEntrypointCommand(
+			["daemon", "run", "--scope", "project", "--dispatch", "agent_prompt_file"],
+			projectDir,
+		);
+		logs = [];
+
+		await handleAkashaEntrypointCommand(["inbox", "status"], projectDir);
+		expect(logs.join("\n")).toContain("- pending: 1");
+		logs = [];
+
+		await handleAkashaEntrypointCommand(["inbox", "run"], projectDir);
+		expect(logs.join("\n")).toContain("Akasha inbox run");
+		expect(logs.join("\n")).toContain("Handle the pending inbox callback");
+		logs = [];
+
+		await handleAkashaEntrypointCommand(["inbox", "consume", "all"], projectDir);
+		expect(logs.join("\n")).toContain("- consumed: 1");
+		const reloaded = new JsonlAkashaStore(store.eventLogPath);
+		expect(reloaded.buildTimeline({ limit: 20 }).map((event) => event.kind)).toEqual(
+			expect.arrayContaining(["callback.inbox.added", "callback.inbox.injected", "callback.inbox.consumed"]),
+		);
+	});
+
 	it("rebuilds projection caches outside an interactive session", async () => {
 		await handleAkashaEntrypointCommand(["init"], projectDir);
 		seedAkashaLog(projectDir);

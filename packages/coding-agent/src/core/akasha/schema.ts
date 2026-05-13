@@ -20,6 +20,11 @@ export const KNOWN_AKASHA_EVENT_KINDS = new Set<AkashaEventKind>([
 	"time.callback.completed",
 	"time.callback.failed",
 	"time.callback.cancelled",
+	"callback.inbox.added",
+	"callback.inbox.injected",
+	"callback.inbox.consumed",
+	"callback.inbox.failed",
+	"callback.inbox.cancelled",
 	"time_syscall.audit",
 	"time_syscall.missing",
 	"time_syscall.repaired",
@@ -232,7 +237,12 @@ function validatePayloadShape(event: AkashaEvent, issues: AkashaSchemaIssue[]): 
 			event.kind === "time.callback.dispatched" ||
 			event.kind === "time.callback.completed" ||
 			event.kind === "time.callback.failed" ||
-			event.kind === "time.callback.cancelled") &&
+			event.kind === "time.callback.cancelled" ||
+			event.kind === "callback.inbox.added" ||
+			event.kind === "callback.inbox.injected" ||
+			event.kind === "callback.inbox.consumed" ||
+			event.kind === "callback.inbox.failed" ||
+			event.kind === "callback.inbox.cancelled") &&
 		typeof event.payload.callbackId !== "string"
 	) {
 		issues.push(issue(event.eventId, "invalid_shape", `${event.kind} requires payload.callbackId`));

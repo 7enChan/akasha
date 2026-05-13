@@ -31,6 +31,8 @@ import { type AkashaToolGateDecision, evaluateAkashaToolGate } from "./tool-gate
 import type { AkashaEvent, AkashaEventDraft, AkashaStore } from "./types.js";
 import { buildAkashaUserTimeline } from "./user-timeline.js";
 
+const MAX_ACTION_GATE_TOKEN_ESTIMATE = 4000;
+
 export interface AkashaTemporalKernelOptions {
 	store: AkashaStore;
 	sessionId: string;
@@ -132,6 +134,7 @@ export class AkashaTemporalKernel {
 					eventIds: gate.eventIds,
 					sections: gate.sections,
 					tokenEstimate: gate.tokenEstimate,
+					maxTokenEstimate: MAX_ACTION_GATE_TOKEN_ESTIMATE,
 				},
 			},
 			parentEventIds: options.parentEventIds ?? [],

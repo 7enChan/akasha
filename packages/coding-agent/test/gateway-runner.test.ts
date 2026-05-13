@@ -217,6 +217,7 @@ describe("AkashaGatewayRunner", () => {
 				runOnSessionStart: false,
 			},
 			privacy: { redactSecrets: true },
+			temporalProtocol: { syscallAuditMode: "soft" },
 			gateway: {
 				enabled: true,
 				defaultCwd: projectDir,

@@ -33,6 +33,9 @@ export function createAkashaDogfoodPreset(): AkashaSettings {
 		privacy: {
 			redactSecrets: true,
 		},
+		temporalProtocol: {
+			syscallAuditMode: "soft",
+		},
 		gateway: {
 			enabled: false,
 			platforms: {
@@ -68,6 +71,10 @@ export function mergeAkashaSettings(base: AkashaSettings | undefined, override: 
 		privacy: {
 			...(base?.privacy ?? {}),
 			...(override.privacy ?? {}),
+		},
+		temporalProtocol: {
+			...(base?.temporalProtocol ?? {}),
+			...(override.temporalProtocol ?? {}),
 		},
 		gateway: {
 			...(base?.gateway ?? {}),

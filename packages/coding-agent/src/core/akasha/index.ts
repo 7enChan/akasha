@@ -5,10 +5,20 @@ export { buildAkashaActionGateContext } from "./action-gate.js";
 export type { AkashaArtifactState, AkashaArtifactStatus } from "./artifact-state.js";
 export { buildArtifactStates } from "./artifact-state.js";
 export { buildTemporalBrief, buildTemporalBriefWithEmbeddings } from "./brief.js";
-export type { AkashaPendingCallbackPrompt } from "./callback-inbox.js";
+export type {
+	AkashaCallbackInboxItem,
+	AkashaCallbackInboxPromptStatus,
+	AkashaCallbackInboxStatusOptions,
+	AkashaCallbackInboxStatusRecord,
+	AkashaPendingCallbackPrompt,
+} from "./callback-inbox.js";
 export {
+	appendAkashaCallbackInboxEvent,
+	appendAkashaCallbackInboxStatus,
 	appendAkashaPendingCallbackPrompt,
+	listAkashaActionableCallbackPrompts,
 	listAkashaPendingCallbackPrompts,
+	projectAkashaCallbackInbox,
 	resolveAkashaCallbackInboxPath,
 } from "./callback-inbox.js";
 export type {
@@ -111,7 +121,12 @@ export type {
 	AkashaRuntimeActionType,
 	AkashaRuntimePolicyAction,
 } from "./policy-kernel.js";
-export { createPolicyEvaluatedPayload, evaluateAkashaPolicy, evaluateAkashaRuntimePolicy } from "./policy-kernel.js";
+export {
+	createPolicyEvaluatedPayload,
+	DEFAULT_AKASHA_RUNTIME_POLICY_RULES,
+	evaluateAkashaPolicy,
+	evaluateAkashaRuntimePolicy,
+} from "./policy-kernel.js";
 export { createAkashaDogfoodPreset, mergeAkashaSettings } from "./preset.js";
 export type {
 	AkashaProjectTimeline,
@@ -223,7 +238,12 @@ export type {
 } from "./temporal-state.js";
 export { buildTemporalState } from "./temporal-state.js";
 export type { AkashaTimeSyscallAuditResult } from "./time-syscall-audit.js";
-export { auditAkashaTimeSyscalls, parentFallbacksToAudit } from "./time-syscall-audit.js";
+export {
+	auditAkashaTimeSyscalls,
+	createAkashaTimeSyscallRepairedDraft,
+	findUnrepairedTimeSyscallMissingAudits,
+	parentFallbacksToAudit,
+} from "./time-syscall-audit.js";
 export type {
 	AkashaTimeSyscallContext,
 	AkashaTimeSyscallToolName,

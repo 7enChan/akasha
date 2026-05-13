@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { auditAkashaTimeSyscalls, parentFallbacksToAudit } from "../src/core/akasha/time-syscall-audit.js";
+import {
+	auditAkashaTimeSyscalls,
+	createAkashaTimeSyscallRepairedDraft,
+	findUnrepairedTimeSyscallMissingAudits,
+	parentFallbacksToAudit,
+} from "../src/core/akasha/time-syscall-audit.js";
 import type { AkashaEvent } from "../src/core/akasha/types.js";
 
 describe("Akasha time syscall audit", () => {
@@ -31,6 +36,43 @@ describe("Akasha time syscall audit", () => {
 		expect(result.audit?.kind).toBe("time_syscall.audit");
 		expect(result.audit?.payload).toMatchObject({ status: "satisfied" });
 		expect(result.fallbacks).toHaveLength(0);
+	});
+
+	it("strict mode records missing audits without heuristic fallback commitments", () => {
+		const result = auditAkashaTimeSyscalls(event({ text: "I will run the M40 verification tomorrow." }), {
+			hasSyscallToolCall: false,
+			mode: "strict",
+		});
+
+		expect(result.audit?.kind).toBe("time_syscall.missing");
+		expect(result.audit?.payload).toMatchObject({
+			mode: "strict",
+			repairRequired: true,
+			detectedCount: 1,
+		});
+		expect(result.fallbacks).toHaveLength(0);
+	});
+
+	it("tracks strict missing syscall repair events", () => {
+		const missing = {
+			...event({ mode: "strict", repairRequired: true, assistantEventId: "assistant-1" }),
+			eventId: "missing-1",
+			kind: "time_syscall.missing" as const,
+		};
+		const assistant = { ...event({ text: "Called akasha_create_commitment." }), eventId: "assistant-2" };
+		const repairedDraft = createAkashaTimeSyscallRepairedDraft(missing, assistant);
+		const repaired = {
+			...event(repairedDraft.payload ?? {}),
+			eventId: "repaired-1",
+			kind: "time_syscall.repaired" as const,
+			sequence: 3,
+			recordedTime: "2026-05-12T00:00:03.000Z",
+			parentEventIds: repairedDraft.parentEventIds ?? [],
+		};
+
+		expect(findUnrepairedTimeSyscallMissingAudits([missing])).toEqual([missing]);
+		expect(findUnrepairedTimeSyscallMissingAudits([missing, repaired])).toEqual([]);
+		expect(repaired.parentEventIds).toEqual(expect.arrayContaining(["missing-1", "assistant-2"]));
 	});
 });
 

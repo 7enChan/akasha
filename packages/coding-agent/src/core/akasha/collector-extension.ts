@@ -18,6 +18,11 @@ import type {
 	ResolvedAkashaSettings,
 } from "../settings-manager.js";
 import { buildTemporalBrief, buildTemporalBriefWithEmbeddings } from "./brief.js";
+import {
+	appendAkashaCallbackInboxEvent,
+	appendAkashaCallbackInboxStatus,
+	listAkashaActionableCallbackPrompts,
+} from "./callback-inbox.js";
 import { registerAkashaCommands } from "./commands.js";
 import { createAkashaEmbeddingProvider } from "./embedding-provider.js";
 import { JsonlAkashaEmbeddingStore } from "./embedding-store.js";
@@ -35,7 +40,12 @@ import {
 } from "./mapper.js";
 import { deriveOpenLoopEvents } from "./open-loops.js";
 import { createAkashaTemporalKernel } from "./temporal-kernel.js";
-import { auditAkashaTimeSyscalls, parentFallbacksToAudit } from "./time-syscall-audit.js";
+import {
+	auditAkashaTimeSyscalls,
+	createAkashaTimeSyscallRepairedDraft,
+	findUnrepairedTimeSyscallMissingAudits,
+	parentFallbacksToAudit,
+} from "./time-syscall-audit.js";
 import {
 	appendAkashaCommitment,
 	appendAkashaCommitmentResolution,
@@ -108,6 +118,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 		const toolCompletedEventIds = new Map<string, string>();
 		const toolAssistantParentIds = new Map<string, string>();
 		const sessionEntryEventIds = new Map<string, string>();
+		const injectedInboxItemIds = new Set<string>();
 
 		const nowIso = () => new Date().toISOString();
 		const nextSourceKey = (scope: string) =>
@@ -164,6 +175,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			toolCompletedEventIds.clear();
 			toolAssistantParentIds.clear();
 			sessionEntryEventIds.clear();
+			injectedInboxItemIds.clear();
 		};
 
 		const append = (draft: AkashaEventDraft): AkashaEvent | undefined => {
@@ -470,9 +482,16 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 				const audit = auditAkashaTimeSyscalls(recorded, {
 					hasSyscallToolCall: hasAkashaTimeSyscallToolCall(event.message),
 					sourceKeyPrefix: `time-syscall-audit:${sessionId}:${recorded.eventId}`,
-					mode: "soft",
+					mode: options.settings.temporalProtocol.syscallAuditMode,
 				});
 				const auditEvent = audit.audit ? append(audit.audit) : undefined;
+				if (hasAkashaTimeSyscallToolCall(event.message) && store) {
+					for (const missing of findUnrepairedTimeSyscallMissingAudits(store.buildTimeline({ limit: 200 })).slice(
+						-3,
+					)) {
+						append(createAkashaTimeSyscallRepairedDraft(missing, recorded, auditEvent));
+					}
+				}
 				for (const draft of parentFallbacksToAudit(audit.fallbacks, auditEvent?.eventId)) {
 					append(draft);
 				}
@@ -683,6 +702,36 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 				}
 			}
 
+			const inboxContext = injectPendingCallbackInboxContext();
+			if (inboxContext) {
+				messages.push({
+					role: "custom",
+					customType: "akasha.pending_callbacks",
+					content: inboxContext.text,
+					display: false,
+					details: {
+						source: BUILT_IN_PATH,
+						eventIds: inboxContext.eventIds,
+						inboxItemIds: inboxContext.inboxItemIds,
+					},
+					timestamp: Date.now(),
+				});
+			}
+
+			const strictRepairContext = buildStrictSyscallRepairContext();
+			if (strictRepairContext) {
+				messages.push({
+					role: "custom",
+					customType: "akasha.syscall_repair",
+					content: strictRepairContext,
+					display: false,
+					details: {
+						source: BUILT_IN_PATH,
+					},
+					timestamp: Date.now(),
+				});
+			}
+
 			if (options.settings.injectTemporalBrief) {
 				const activeEmbeddingStore = ensureEmbeddingStore(ctx);
 				const brief =
@@ -719,6 +768,75 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 
 			return messages.length > event.messages.length ? { messages } : undefined;
 		});
+
+		function injectPendingCallbackInboxContext():
+			| { text: string; eventIds: string[]; inboxItemIds: string[] }
+			| undefined {
+			if (!store || !sessionId) return undefined;
+			const items = listAkashaActionableCallbackPrompts(options.agentDir)
+				.filter((item) => !injectedInboxItemIds.has(item.prompt.id))
+				.slice(0, 5);
+			if (items.length === 0) return undefined;
+			const eventIds: string[] = [];
+			for (const item of items) {
+				const injected = appendAkashaCallbackInboxEvent(store, "callback.inbox.injected", item.prompt, {
+					sessionId,
+					streamId,
+					consumerSessionId: sessionId,
+					parentEventIds: parents(
+						currentTurnEventId,
+						latestLeafEventId,
+						item.prompt.claimEventId,
+						item.prompt.dueEventId,
+					),
+					sourceKeySuffix: `context:${sessionId}`,
+				});
+				appendAkashaCallbackInboxStatus(options.agentDir, item.prompt, {
+					status: "injected",
+					eventId: injected.eventId,
+					consumerSessionId: sessionId,
+				});
+				injectedInboxItemIds.add(item.prompt.id);
+				eventIds.push(injected.eventId);
+			}
+			const text = [
+				"<akasha_pending_callbacks>",
+				...items.map((item, index) =>
+					[
+						`${index + 1}. ${item.prompt.summary}`,
+						`   inboxItemId: ${item.prompt.id}`,
+						`   callbackId: ${item.prompt.callbackId}`,
+						item.prompt.targetEventId ? `   targetEventId: ${item.prompt.targetEventId}` : undefined,
+						"   obligation: Review the causal chain, act only if still relevant, then complete, cancel, or update the callback.",
+					]
+						.filter((line): line is string => Boolean(line))
+						.join("\n"),
+				),
+				"</akasha_pending_callbacks>",
+			].join("\n");
+			return {
+				text,
+				eventIds,
+				inboxItemIds: items.map((item) => item.prompt.id),
+			};
+		}
+
+		function buildStrictSyscallRepairContext(): string | undefined {
+			if (!store || options.settings.temporalProtocol.syscallAuditMode !== "strict") return undefined;
+			const missing = findUnrepairedTimeSyscallMissingAudits(store.buildTimeline({ limit: 200 })).slice(-3);
+			if (missing.length === 0) return undefined;
+			return [
+				"<akasha_time_syscall_repair_required>",
+				...missing.map((event, index) =>
+					[
+						`${index + 1}. Missing syscall audit: ${event.eventId}`,
+						`   assistantEventId: ${String(event.payload.assistantEventId ?? event.objectId ?? "")}`,
+						"   obligation: if the future responsibility is still valid, call akasha_create_commitment or akasha_create_prediction before restating it.",
+					].join("\n"),
+				),
+				"</akasha_time_syscall_repair_required>",
+			].join("\n");
+		}
 
 		function mapModelSelect(event: ModelSelectEvent): AkashaEventDraft {
 			return baseDraft(

@@ -2,7 +2,13 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { listAkashaPendingCallbackPrompts, resolveAkashaCallbackInboxPath } from "../src/core/akasha/callback-inbox.js";
+import {
+	appendAkashaCallbackInboxStatus,
+	listAkashaActionableCallbackPrompts,
+	listAkashaPendingCallbackPrompts,
+	projectAkashaCallbackInbox,
+	resolveAkashaCallbackInboxPath,
+} from "../src/core/akasha/callback-inbox.js";
 import { runAkashaCallbackRunner } from "../src/core/akasha/callback-runner.js";
 import { JsonlAkashaStore } from "../src/core/akasha/jsonl-store.js";
 
@@ -34,8 +40,11 @@ describe("Akasha callback dispatchers", () => {
 			dispatchMode: "agent_prompt_file",
 			dispatchDetails: {
 				inboxItemId: expect.stringContaining("callback-1"),
+				inboxEventId: expect.any(String),
 			},
+			outputEventIds: [expect.any(String)],
 		});
+		expect(store.buildTimeline({ limit: 20 }).map((event) => event.kind)).toContain("callback.inbox.added");
 		expect(existsSync(resolveAkashaCallbackInboxPath(tempDir))).toBe(true);
 		expect(prompts).toMatchObject([
 			{
@@ -45,6 +54,34 @@ describe("Akasha callback dispatchers", () => {
 			},
 		]);
 		expect(prompts[0]?.prompt).toContain("Continue this temporal responsibility");
+	});
+
+	it("projects append-only inbox status records", () => {
+		const store = new JsonlAkashaStore(join(tempDir, "events.jsonl"));
+		appendDueCallback(store);
+		runAkashaCallbackRunner(store, {
+			reflection: reflectionOff(),
+			dispatchMode: "agent_prompt_file",
+			agentDir: tempDir,
+			now: new Date("2026-05-12T00:01:00.000Z"),
+		});
+		const [prompt] = listAkashaPendingCallbackPrompts(tempDir);
+		expect(prompt).toBeDefined();
+
+		appendAkashaCallbackInboxStatus(tempDir, prompt!, {
+			status: "injected",
+			eventTime: "2026-05-12T00:02:00.000Z",
+			eventId: "injected-1",
+		});
+
+		expect(listAkashaPendingCallbackPrompts(tempDir)).toHaveLength(0);
+		expect(listAkashaActionableCallbackPrompts(tempDir)).toHaveLength(1);
+		expect(projectAkashaCallbackInbox(tempDir)[0]).toMatchObject({
+			status: "injected",
+			lastStatusRecord: {
+				eventId: "injected-1",
+			},
+		});
 	});
 
 	it("fails agent prompt dispatch without an agentDir", () => {

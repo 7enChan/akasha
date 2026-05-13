@@ -263,6 +263,9 @@ describe("Akasha collector extension", () => {
 			privacy: {
 				redactSecrets: true,
 			},
+			temporalProtocol: {
+				syscallAuditMode: "soft",
+			},
 			gateway: {
 				enabled: false,
 				defaultCwd: undefined,

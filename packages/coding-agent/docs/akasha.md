@@ -42,6 +42,15 @@ akasha cache rebuild --scope project
 akasha cache clear --scope project
 ```
 
+Inspect callback prompts that were dispatched to the local resume inbox:
+
+```bash
+akasha inbox status
+akasha inbox list
+akasha inbox run --limit 5
+akasha inbox consume all
+```
+
 Run the Telegram gateway as an always-on IM entrypoint:
 
 ```bash
@@ -178,6 +187,8 @@ The shell-level `akasha daemon run` can dispatch callbacks with `agent_prompt_fi
 
 This gives Akasha a local handoff point for future agent resume flows without requiring a live chat session.
 
+`akasha inbox run` prints actionable callback prompts and records `callback.inbox.injected`. The built-in Akasha context hook also injects actionable inbox items as hidden `<akasha_pending_callbacks>` context on the next model turn and records the same lifecycle event. After the callback has been handled, use `akasha inbox consume <id|all>` to append `callback.inbox.consumed`.
+
 `/akasha doctor` reports event counts, schema issues, retention pressure, and projection cache freshness.
 
 Akasha projections apply governance before injecting hidden context. Suppressed events hide their causal descendants and supported derived facts; redacted source events remain visible only in redacted form, while derived facts sourced from them are omitted from projections.
@@ -198,6 +209,8 @@ akasha_check_prediction
 These tools write first-class `promise.*` and `prediction.*` events with source metadata. Natural-language extraction remains as a fallback, but assistant responses that call an Akasha syscall tool do not also create duplicate heuristic commitments.
 
 When the assistant expresses future responsibility without a syscall, Akasha records `time_syscall.missing` in soft audit mode and parents the heuristic fallback commitment/prediction to that audit event. When an assistant response uses a syscall tool, Akasha records a satisfied `time_syscall.audit`.
+
+Set `akasha.temporalProtocol.syscallAuditMode` to `"strict"` to disable heuristic fallback commitment creation. Strict mode keeps the missing-syscall audit open until a later assistant response uses an explicit Akasha syscall, at which point Akasha records `time_syscall.repaired`.
 
 ## Long-term Memory
 

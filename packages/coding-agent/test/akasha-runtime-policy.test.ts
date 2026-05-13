@@ -30,6 +30,32 @@ describe("Akasha runtime policy surface", () => {
 		});
 	});
 
+	it("blocks callback dispatch when the target is suppressed", () => {
+		const decision = evaluateAkashaRuntimePolicy({
+			type: "callback_dispatch",
+			subject: "scheduled_callback",
+			objectId: "event-suppressed",
+			payload: { callbackId: "callback-1", targetSuppressed: true },
+		});
+
+		expect(decision).toMatchObject({
+			action: "block",
+			ruleId: "block_callback_dispatch_if_target_suppressed",
+		});
+	});
+
+	it("requires confirmation before export actions", () => {
+		const decision = evaluateAkashaRuntimePolicy({
+			type: "export",
+			subject: "akasha.export",
+		});
+
+		expect(decision).toMatchObject({
+			action: "require_confirmation",
+			ruleId: "require_confirmation_for_export",
+		});
+	});
+
 	it("appends policy events for context injection before action gate injection", () => {
 		const store = new JsonlAkashaStore(join(tempDir, "events.jsonl"));
 		const user = store.append({

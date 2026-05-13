@@ -131,6 +131,7 @@ Use `akasha init --global` to write the preset to global settings instead of the
 | `akasha.maintenance.heartbeatIntervalMinutes` | number | `30` | Heartbeat maintenance interval in minutes |
 | `akasha.maintenance.runOnSessionStart` | boolean | `false` | Run one maintenance pass immediately after the session starts |
 | `akasha.privacy.redactSecrets` | boolean | `true` | Redact common secrets before appending Akasha events |
+| `akasha.temporalProtocol.syscallAuditMode` | string | `"soft"` | `"soft"` records missing syscalls plus heuristic fallback events; `"strict"` records missing syscalls without fallback events until an explicit syscall repairs the protocol gap |
 | `akasha.gateway.enabled` | boolean | `false` | Enable the long-running IM gateway runtime |
 | `akasha.gateway.defaultCwd` | string | current cwd | Default workspace used by gateway chats |
 | `akasha.gateway.platforms.telegram.enabled` | boolean | `false` | Enable the Telegram adapter |
@@ -159,6 +160,9 @@ Useful inspection commands include `/akasha timeline [n]` for the current sessio
       "enabled": true,
       "heartbeatEnabled": true,
       "heartbeatIntervalMinutes": 30
+    },
+    "temporalProtocol": {
+      "syscallAuditMode": "soft"
     },
     "gateway": {
       "enabled": true,

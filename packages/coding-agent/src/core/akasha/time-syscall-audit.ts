@@ -4,6 +4,7 @@ import type { AkashaEvent, AkashaEventDraft } from "./types.js";
 export interface AkashaTimeSyscallAuditResult {
 	audit?: AkashaEventDraft;
 	fallbacks: AkashaEventDraft[];
+	repair?: AkashaEventDraft;
 }
 
 export function auditAkashaTimeSyscalls(
@@ -14,7 +15,9 @@ export function auditAkashaTimeSyscalls(
 		mode?: "soft" | "strict";
 	} = { hasSyscallToolCall: false },
 ): AkashaTimeSyscallAuditResult {
-	const fallbacks = options.hasSyscallToolCall ? [] : deriveAccountabilityEventsFromAssistant(assistantEvent);
+	const mode = options.mode ?? "soft";
+	const detectedFallbacks = options.hasSyscallToolCall ? [] : deriveAccountabilityEventsFromAssistant(assistantEvent);
+	const fallbacks = mode === "strict" ? [] : detectedFallbacks;
 	const sourceKeyPrefix = options.sourceKeyPrefix ?? `time-syscall-audit:${assistantEvent.eventId}`;
 	if (options.hasSyscallToolCall) {
 		return {
@@ -23,7 +26,7 @@ export function auditAkashaTimeSyscalls(
 				sourceKey: `${sourceKeyPrefix}:satisfied`,
 				payload: {
 					status: "satisfied",
-					mode: options.mode ?? "soft",
+					mode,
 					assistantEventId: assistantEvent.eventId,
 					message: "Assistant used an explicit Akasha time syscall.",
 				},
@@ -32,22 +35,68 @@ export function auditAkashaTimeSyscalls(
 			fallbacks,
 		};
 	}
-	if (fallbacks.length === 0) return { fallbacks };
+	if (detectedFallbacks.length === 0) return { fallbacks: [] };
 	return {
 		audit: baseAuditDraft(assistantEvent, {
 			kind: "time_syscall.missing",
 			sourceKey: `${sourceKeyPrefix}:missing`,
 			payload: {
 				status: "missing",
-				mode: options.mode ?? "soft",
+				mode,
 				assistantEventId: assistantEvent.eventId,
-				detectedCount: fallbacks.length,
-				detectedKinds: [...new Set(fallbacks.map((draft) => draft.kind))],
+				detectedCount: detectedFallbacks.length,
+				detectedKinds: [...new Set(detectedFallbacks.map((draft) => draft.kind))],
+				repairRequired: mode === "strict",
 				message: "Assistant expressed future responsibility without an explicit Akasha time syscall.",
 			},
 			importance: 0.8,
 		}),
 		fallbacks,
+	};
+}
+
+export function findUnrepairedTimeSyscallMissingAudits(events: AkashaEvent[]): AkashaEvent[] {
+	const repaired = new Set<string>();
+	for (const event of events) {
+		if (event.kind !== "time_syscall.repaired") continue;
+		const missingEventId =
+			typeof event.payload.missingEventId === "string" ? event.payload.missingEventId : event.parentEventIds[0];
+		if (missingEventId) repaired.add(missingEventId);
+	}
+	return events.filter(
+		(event) =>
+			event.kind === "time_syscall.missing" &&
+			event.payload.mode === "strict" &&
+			event.payload.repairRequired === true &&
+			!repaired.has(event.eventId),
+	);
+}
+
+export function createAkashaTimeSyscallRepairedDraft(
+	missingEvent: AkashaEvent,
+	assistantEvent: AkashaEvent,
+	satisfiedAuditEvent?: AkashaEvent,
+): AkashaEventDraft {
+	const draft = baseAuditDraft(assistantEvent, {
+		kind: "time_syscall.repaired",
+		sourceKey: `time-syscall-audit:${assistantEvent.sessionId}:${missingEvent.eventId}:repaired:${assistantEvent.eventId}`,
+		payload: {
+			status: "repaired",
+			mode: "strict",
+			missingEventId: missingEvent.eventId,
+			assistantEventId: assistantEvent.eventId,
+			satisfiedAuditEventId: satisfiedAuditEvent?.eventId,
+			message: "A later assistant turn used an explicit Akasha time syscall after a strict missing-syscall audit.",
+		},
+		importance: 0.82,
+	});
+	return {
+		...draft,
+		parentEventIds: [
+			...new Set(
+				[missingEvent.eventId, assistantEvent.eventId, satisfiedAuditEvent?.eventId].filter(Boolean) as string[],
+			),
+		],
 	};
 }
 

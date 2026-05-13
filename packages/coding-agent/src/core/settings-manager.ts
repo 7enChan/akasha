@@ -68,6 +68,7 @@ export interface AkashaSettings {
 	maintenance?: AkashaMaintenanceSettings;
 	privacy?: AkashaPrivacySettings;
 	gateway?: AkashaGatewaySettings;
+	temporalProtocol?: AkashaTemporalProtocolSettings;
 }
 
 export interface ResolvedAkashaSettings {
@@ -81,6 +82,7 @@ export interface ResolvedAkashaSettings {
 	maintenance: ResolvedAkashaMaintenanceSettings;
 	privacy: ResolvedAkashaPrivacySettings;
 	gateway: ResolvedAkashaGatewaySettings;
+	temporalProtocol: ResolvedAkashaTemporalProtocolSettings;
 }
 
 export type AkashaEmbeddingProviderName = "off" | "hash" | "openai-compatible";
@@ -197,6 +199,14 @@ export interface ResolvedAkashaGatewaySettings {
 	platforms: {
 		telegram: ResolvedAkashaGatewayTelegramSettings;
 	};
+}
+
+export interface AkashaTemporalProtocolSettings {
+	syscallAuditMode?: "soft" | "strict"; // default: "soft"
+}
+
+export interface ResolvedAkashaTemporalProtocolSettings {
+	syscallAuditMode: "soft" | "strict";
 }
 
 export type TransportSetting = Transport;
@@ -846,6 +856,7 @@ export class SettingsManager {
 		const maintenance = this.settings.akasha?.maintenance;
 		const gateway = this.settings.akasha?.gateway;
 		const telegramGateway = gateway?.platforms?.telegram;
+		const temporalProtocol = this.settings.akasha?.temporalProtocol;
 		return {
 			enabled: this.settings.akasha?.enabled ?? false,
 			injectTemporalBrief: this.settings.akasha?.injectTemporalBrief ?? false,
@@ -919,6 +930,9 @@ export class SettingsManager {
 						webhookPortEnv: telegramGateway?.webhookPortEnv ?? "TELEGRAM_WEBHOOK_PORT",
 					},
 				},
+			},
+			temporalProtocol: {
+				syscallAuditMode: temporalProtocol?.syscallAuditMode === "strict" ? "strict" : "soft",
 			},
 		};
 	}

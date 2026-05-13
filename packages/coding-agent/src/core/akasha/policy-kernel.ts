@@ -63,6 +63,39 @@ export interface AkashaPolicyDecision {
 	callback?: AkashaPolicyCallbackSchedule;
 }
 
+export const DEFAULT_AKASHA_RUNTIME_POLICY_RULES: AkashaPolicyRule[] = [
+	{
+		id: "max_context_injection_tokens",
+		description: "Action context must stay within the configured token budget.",
+		severity: "warning",
+	},
+	{
+		id: "block_context_with_suppressed_sources",
+		description: "Suppressed or redacted source events must not be injected into model context.",
+		severity: "critical",
+	},
+	{
+		id: "block_embedding_for_suppressed_source",
+		description: "Suppressed or redacted source events must not be indexed into embeddings.",
+		severity: "critical",
+	},
+	{
+		id: "require_confirmation_for_export",
+		description: "Akasha exports need explicit user confirmation.",
+		severity: "warning",
+	},
+	{
+		id: "block_callback_dispatch_if_target_suppressed",
+		description: "Callbacks targeting suppressed events must not be dispatched.",
+		severity: "critical",
+	},
+	{
+		id: "block_syscall_without_source_event",
+		description: "Time syscalls must identify their source event when running under strict protocol.",
+		severity: "warning",
+	},
+];
+
 export function evaluateAkashaPolicy(input: AkashaPolicyEvaluationInput): AkashaPolicyDecision {
 	for (const rule of input.rules ?? []) {
 		const decision = evaluateRule(input, rule);
@@ -83,7 +116,7 @@ export function evaluateAkashaRuntimePolicy(action: AkashaRuntimePolicyAction): 
 		objectId: action.objectId,
 		payload: action.payload,
 		evidenceEvents: action.evidenceEvents,
-		rules: action.rules,
+		rules: action.rules ?? DEFAULT_AKASHA_RUNTIME_POLICY_RULES,
 		now: action.now,
 	});
 }
@@ -151,12 +184,87 @@ function evaluateRule(input: AkashaPolicyEvaluationInput, rule: AkashaPolicyRule
 		}
 	}
 
+	if (rule.id === "max_context_injection_tokens" && input.actionType === "context_injection") {
+		const estimate = numberPayload(input, "tokenEstimate");
+		const max = numberPayload(input, "maxTokenEstimate");
+		if (estimate !== undefined && max !== undefined && estimate > max) {
+			return decision(
+				"require_validation",
+				rule,
+				`Akasha action context token estimate ${estimate} exceeds policy budget ${max}.`,
+				[],
+			);
+		}
+	}
+
+	if (rule.id === "block_context_with_suppressed_sources" && input.actionType === "context_injection") {
+		const suppressed = stringArrayPayload(input, "suppressedSourceEventIds");
+		if (suppressed.length > 0) {
+			return decision(
+				"block",
+				rule,
+				"Akasha blocked context injection from suppressed or redacted sources.",
+				suppressed,
+			);
+		}
+	}
+
+	if (rule.id === "block_embedding_for_suppressed_source" && input.actionType === "embedding_index") {
+		const suppressed = stringArrayPayload(input, "suppressedSourceEventIds");
+		if (suppressed.length > 0) {
+			return decision(
+				"block",
+				rule,
+				"Akasha blocked embedding indexing for suppressed or redacted sources.",
+				suppressed,
+			);
+		}
+	}
+
+	if (rule.id === "require_confirmation_for_export" && input.actionType === "export") {
+		return {
+			...decision("require_confirmation", rule, "Akasha requires confirmation before exporting time data.", []),
+			confirmationPrompt: "Exporting Akasha time data can disclose local history. Confirm this export.",
+		};
+	}
+
+	if (rule.id === "block_callback_dispatch_if_target_suppressed" && input.actionType === "callback_dispatch") {
+		const evidenceEventIds = (input.evidenceEvents ?? []).map((event) => event.eventId);
+		const targetSuppressed = input.payload?.targetSuppressed === true || evidenceEventIds.length > 0;
+		if (targetSuppressed) {
+			return decision(
+				"block",
+				rule,
+				"Akasha blocked callback dispatch because its target is suppressed.",
+				evidenceEventIds,
+			);
+		}
+	}
+
+	if (rule.id === "block_syscall_without_source_event" && input.actionType === "syscall") {
+		const sourceEventIds = stringArrayPayload(input, "sourceEventIds");
+		if (input.payload?.strict === true && sourceEventIds.length === 0) {
+			return decision("block", rule, "Akasha strict protocol requires time syscalls to include sourceEventIds.", []);
+		}
+	}
+
 	return {
 		action: "allow",
 		severity: "info",
 		reason: "Rule did not match.",
 		evidenceEventIds: [],
 	};
+}
+
+function numberPayload(input: AkashaPolicyEvaluationInput, key: string): number | undefined {
+	const value = input.payload?.[key];
+	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function stringArrayPayload(input: AkashaPolicyEvaluationInput, key: string): string[] {
+	const value = input.payload?.[key];
+	if (!Array.isArray(value)) return [];
+	return value.filter((item): item is string => typeof item === "string" && item.length > 0);
 }
 
 function decision(
