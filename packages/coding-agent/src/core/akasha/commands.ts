@@ -36,6 +36,7 @@ import type { AkashaRetentionPlan } from "./retention.js";
 import { planAkashaRetention } from "./retention.js";
 import { runAkashaSchedulerPass } from "./scheduler.js";
 import { buildAkashaSessionIndex } from "./session-index.js";
+import { buildAkashaSleepReplayStatus, runAkashaSleepReplayPass } from "./sleep-replay.js";
 import type { AkashaTaskModel } from "./task-model.js";
 import { buildAkashaTaskModel } from "./task-model.js";
 import type { AkashaOpenLoopCandidate, AkashaTemporalState } from "./temporal-state.js";
@@ -59,7 +60,7 @@ export function registerAkashaCommands(
 ): void {
 	akasha.registerCommand("akasha", {
 		description:
-			"Inspect Akasha time events: /akasha status | init [global] | enable [global] | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | daemon [status|tick|run] | cache [status|clear|rebuild] | callback-complete <callbackId> [evidenceEventId] | callback-cancel <callbackId> [reason] | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
+			"Inspect Akasha time events: /akasha status | init [global] | enable [global] | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | daemon [status|tick|run] | cache [status|clear|rebuild] | sleep [status|run] | callback-complete <callbackId> [evidenceEventId] | callback-cancel <callbackId> [reason] | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
 		getArgumentCompletions: (prefix) => {
 			const commands = [
 				"status",
@@ -72,6 +73,7 @@ export function registerAkashaCommands(
 				"queue",
 				"daemon",
 				"cache",
+				"sleep",
 				"callback-complete",
 				"callback-cancel",
 				"maintain",
@@ -294,6 +296,24 @@ export function registerAkashaCommands(
 					return;
 				}
 				ctx.ui.notify("Usage: /akasha cache status | clear | rebuild", "warning");
+				return;
+			}
+
+			if (subcommand === "sleep") {
+				const action = rest[0] ?? "status";
+				if (action === "status") {
+					ctx.ui.notify(
+						formatSleepReplayStatus(buildAkashaSleepReplayStatus(store.buildTimeline({ limit: 1000 }))),
+						"info",
+					);
+					return;
+				}
+				if (action === "run") {
+					const result = runAkashaSleepReplayPass(store, { limit: 1000 });
+					ctx.ui.notify(formatSleepReplayResult(result), "info");
+					return;
+				}
+				ctx.ui.notify("Usage: /akasha sleep status | run", "warning");
 				return;
 			}
 
@@ -534,7 +554,7 @@ export function registerAkashaCommands(
 			}
 
 			ctx.ui.notify(
-				"Usage: /akasha status | init [global] | enable [global] | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | daemon [status|tick|run] | cache [status|clear|rebuild] | callback-complete <callbackId> [evidenceEventId] | callback-cancel <callbackId> [reason] | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
+				"Usage: /akasha status | init [global] | enable [global] | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | daemon [status|tick|run] | cache [status|clear|rebuild] | sleep [status|run] | callback-complete <callbackId> [evidenceEventId] | callback-cancel <callbackId> [reason] | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
 				"warning",
 			);
 		},
@@ -742,6 +762,29 @@ function formatCacheFreshness(freshness: ReturnType<typeof getAkashaProjectionCa
 		);
 	}
 	return lines.join("\n");
+}
+
+function formatSleepReplayStatus(status: ReturnType<typeof buildAkashaSleepReplayStatus>): string {
+	return [
+		"Akasha sleep replay status:",
+		`- replay count: ${status.replayCount}`,
+		`- derived memories: ${status.derivedMemoryCount}`,
+		`- last started: ${status.lastStarted?.eventTime ?? "(never)"}`,
+		`- last completed: ${status.lastCompleted?.eventTime ?? "(never)"}`,
+	].join("\n");
+}
+
+function formatSleepReplayResult(result: ReturnType<typeof runAkashaSleepReplayPass>): string {
+	return [
+		"Akasha sleep replay run:",
+		`- started: ${result.started.eventId}`,
+		`- completed: ${result.completed.eventId}`,
+		`- derived: ${result.derived.length}`,
+		`- failure lessons: ${result.failureLessons}`,
+		`- workflow optimizations: ${result.workflowOptimizations}`,
+		`- procedures: ${result.procedures}`,
+		`- decays: ${result.decays}`,
+	].join("\n");
 }
 
 function formatTaskModel(model: AkashaTaskModel): string {

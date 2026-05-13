@@ -22,6 +22,7 @@ import {
 	sessionStateProjectionCacheKey,
 } from "./core/akasha/projection-cache.js";
 import { buildAkashaSessionIndex } from "./core/akasha/session-index.js";
+import { buildAkashaSleepReplayStatus, runAkashaSleepReplayPass } from "./core/akasha/sleep-replay.js";
 import type { AkashaStore } from "./core/akasha/types.js";
 import { SettingsManager } from "./core/settings-manager.js";
 import { resolveAkashaGatewayConfig } from "./gateway/config.js";
@@ -44,6 +45,7 @@ export async function handleAkashaEntrypointCommand(args: string[], cwd: string)
 		command !== "daemon" &&
 		command !== "cache" &&
 		command !== "inbox" &&
+		command !== "sleep" &&
 		command !== "gateway"
 	) {
 		return false;
@@ -70,6 +72,11 @@ export async function handleAkashaEntrypointCommand(args: string[], cwd: string)
 
 	if (command === "inbox") {
 		handleAkashaInboxCommand(args.slice(1), agentDir, settingsManager);
+		return true;
+	}
+
+	if (command === "sleep") {
+		handleAkashaSleepCommand(args.slice(1), cwd, agentDir, settingsManager);
 		return true;
 	}
 
@@ -106,6 +113,7 @@ export async function handleAkashaEntrypointCommand(args: string[], cwd: string)
 	console.log(`- enabled: ${settings.enabled}`);
 	console.log(`- temporal brief: ${settings.injectTemporalBrief}`);
 	console.log(`- action gate: ${settings.actionGate.enabled}`);
+	console.log(`- holographic memory: ${settings.holographicMemory.enabled}`);
 	console.log(`- tool gate: ${settings.actionGate.enforceToolGate}`);
 	console.log(`- maintenance: ${settings.maintenance.enabled}`);
 	console.log(`- heartbeat: ${settings.maintenance.heartbeatEnabled}`);
@@ -124,15 +132,17 @@ function printAkashaEntrypointHelp(command?: string): void {
 				? "akasha cache status|clear|rebuild [--scope current|project|all]"
 				: command === "inbox"
 					? "akasha inbox status|list|run|consume [id|all]"
-					: command === "gateway"
-						? "akasha gateway [setup|status|run|install|uninstall|start|stop|logs]"
-						: command === "doctor"
-							? "akasha doctor"
-							: command === "status"
-								? "akasha status"
-								: command === "enable"
-									? "akasha enable [--global]"
-									: "akasha init [--global]";
+					: command === "sleep"
+						? "akasha sleep status|run [--scope current|project|all]"
+						: command === "gateway"
+							? "akasha gateway [setup|status|run|install|uninstall|start|stop|logs]"
+							: command === "doctor"
+								? "akasha doctor"
+								: command === "status"
+									? "akasha status"
+									: command === "enable"
+										? "akasha enable [--global]"
+										: "akasha init [--global]";
 	console.log(`${chalk.bold("Akasha")} - time-native coding agent
 
 ${chalk.bold("Usage:")}
@@ -146,6 +156,7 @@ ${chalk.bold("Commands:")}
   akasha daemon ...         Run Akasha daemon operations outside a session
   akasha cache ...          Inspect or rebuild Akasha projection caches
   akasha inbox ...          Inspect or consume pending callback prompts
+  akasha sleep ...          Run offline sleep replay consolidation
   akasha gateway ...        Run the Telegram gateway and Linux service helpers
   akasha                    Start the agent runtime
 
@@ -505,6 +516,62 @@ function handleAkashaInboxCommand(args: string[], agentDir: string, settingsMana
 	}
 
 	console.log("Usage: akasha inbox status|list|run|consume [id|all]");
+}
+
+function handleAkashaSleepCommand(
+	args: string[],
+	cwd: string,
+	agentDir: string,
+	settingsManager: SettingsManager,
+): void {
+	const action = args[0] ?? "status";
+	const settings = settingsManager.getAkashaSettings();
+	const stores = loadStoresForScope(cwd, agentDir, settings.eventLogDir, parseScope(args));
+	if (stores.length === 0) {
+		console.log("Akasha sleep: no event logs found.");
+		return;
+	}
+
+	if (action === "status") {
+		const statuses = stores.map((store) => buildAkashaSleepReplayStatus(store.buildTimeline({ limit: 1000 })));
+		console.log("Akasha sleep replay status");
+		console.log(`- sessions: ${stores.length}`);
+		console.log(`- replay count: ${statuses.reduce((total, status) => total + status.replayCount, 0)}`);
+		console.log(`- derived memories: ${statuses.reduce((total, status) => total + status.derivedMemoryCount, 0)}`);
+		const lastCompleted = statuses
+			.map((status) => status.lastCompleted?.eventTime)
+			.filter((value): value is string => typeof value === "string")
+			.sort()
+			.at(-1);
+		console.log(`- last completed: ${lastCompleted ?? "(never)"}`);
+		return;
+	}
+
+	if (action === "run") {
+		let derived = 0;
+		let lessons = 0;
+		let workflows = 0;
+		let procedures = 0;
+		let decays = 0;
+		for (const store of stores) {
+			const result = runAkashaSleepReplayPass(store, { limit: 1000 });
+			derived += result.derived.length;
+			lessons += result.failureLessons;
+			workflows += result.workflowOptimizations;
+			procedures += result.procedures;
+			decays += result.decays;
+		}
+		console.log("Akasha sleep replay run");
+		console.log(`- sessions: ${stores.length}`);
+		console.log(`- derived: ${derived}`);
+		console.log(`- failure lessons: ${lessons}`);
+		console.log(`- workflow optimizations: ${workflows}`);
+		console.log(`- procedures: ${procedures}`);
+		console.log(`- decays: ${decays}`);
+		return;
+	}
+
+	console.log("Usage: akasha sleep status|run [--scope current|project|all]");
 }
 
 function loadStoresForScope(

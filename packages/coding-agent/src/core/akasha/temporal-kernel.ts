@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import type { ToolCallEvent } from "../extensions/types.js";
-import type { ResolvedAkashaActionGateSettings, ResolvedAkashaReflectionSettings } from "../settings-manager.js";
+import type {
+	ResolvedAkashaActionGateSettings,
+	ResolvedAkashaHolographicMemorySettings,
+	ResolvedAkashaReflectionSettings,
+} from "../settings-manager.js";
 import { type AkashaActionGateContext, buildAkashaActionGateContext } from "./action-gate.js";
 import {
 	type AkashaCallbackRunnerOptions,
@@ -15,6 +19,10 @@ import {
 	markAkashaCallbackCompleted,
 	runAkashaDaemonQueuePass,
 } from "./daemon-queue.js";
+import { type AkashaReconstructedMemoryField, reconstructAkashaMemoryField } from "./holographic-memory.js";
+import { buildAkashaMemoryCue } from "./memory-cue.js";
+import { createMemoryRecalledDraft } from "./memory-recall-events.js";
+import { buildAkashaMemoryTraces } from "./memory-trace.js";
 import {
 	type AkashaPolicyDecision,
 	type AkashaPolicyRule,
@@ -47,6 +55,10 @@ export interface AkashaTemporalKernelOptions {
 export interface AkashaActionContextBuildOptions {
 	cwd: string;
 	settings: ResolvedAkashaActionGateSettings;
+	holographicMemory?: ResolvedAkashaHolographicMemorySettings;
+	latestUserText?: string;
+	pendingInboxItemIds?: string[];
+	strictRepairMissingEventIds?: string[];
 	parentEventIds?: string[];
 	correlationId?: string;
 	sourceKey?: string;
@@ -56,6 +68,8 @@ export interface AkashaActionContextBuildOptions {
 export interface AkashaActionContextBuildResult {
 	gate?: AkashaActionGateContext;
 	auditEvent?: AkashaEvent;
+	recalledEvent?: AkashaEvent;
+	memoryField?: AkashaReconstructedMemoryField;
 }
 
 export interface AkashaRuntimePolicyEvaluationOptions {
@@ -107,6 +121,7 @@ export class AkashaTemporalKernel {
 	}
 
 	buildActionContext(options: AkashaActionContextBuildOptions): AkashaActionContextBuildResult {
+		const sessionEvents = this.store.buildTimeline({ limit: 500 });
 		const projectTimeline = options.settings.includeProjectState
 			? buildAkashaProjectTimeline({
 					agentDir: this.agentDir,
@@ -122,10 +137,22 @@ export class AkashaTemporalKernel {
 					limit: 1000,
 				})
 			: undefined;
-		const gate = buildAkashaActionGateContext({
-			sessionEvents: this.store.buildTimeline({ limit: 500 }),
+		const memoryField = this.buildHolographicMemoryField({
+			sessionEvents,
 			projectTimeline,
 			userTimeline,
+			settings: options.holographicMemory,
+			latestUserText: options.latestUserText,
+			cwd: options.cwd,
+			pendingInboxItemIds: options.pendingInboxItemIds,
+			strictRepairMissingEventIds: options.strictRepairMissingEventIds,
+			eventTime: options.eventTime,
+		});
+		const gate = buildAkashaActionGateContext({
+			sessionEvents,
+			projectTimeline,
+			userTimeline,
+			holographicMemory: memoryField,
 			maxItems: options.settings.maxItems,
 		});
 		if (!gate) return {};
@@ -147,6 +174,25 @@ export class AkashaTemporalKernel {
 			eventTime: options.eventTime,
 		});
 		if (policy.decision.action !== "allow") return {};
+		const recalledEvent =
+			memoryField && options.holographicMemory?.recordRecallEvents
+				? this.store.append(
+						createMemoryRecalledDraft({
+							sessionId: this.sessionId,
+							streamId: this.streamId,
+							cue: memoryField.cue,
+							field: memoryField,
+							parentEventIds: [
+								policy.event.eventId,
+								...(options.parentEventIds ?? []),
+								...memoryField.sourceEventIds.slice(0, 8),
+							],
+							correlationId: options.correlationId,
+							sourceKey: options.sourceKey ? `${options.sourceKey}:memory-recalled` : undefined,
+							eventTime: options.eventTime,
+						}),
+					)
+				: undefined;
 
 		const auditEvent = this.store.append({
 			kind: "action_gate.injected",
@@ -156,7 +202,9 @@ export class AkashaTemporalKernel {
 			actor: "system",
 			subjectId: "akasha.action_gate",
 			sourceKey: options.sourceKey,
-			parentEventIds: [policy.event.eventId, ...(options.parentEventIds ?? [])],
+			parentEventIds: [policy.event.eventId, recalledEvent?.eventId, ...(options.parentEventIds ?? [])].filter(
+				(id): id is string => typeof id === "string",
+			),
 			correlationId: options.correlationId,
 			payload: {
 				contentHash: hashText(gate.text),
@@ -167,7 +215,56 @@ export class AkashaTemporalKernel {
 			importance: 0.65,
 			ttlPolicy: "long_term",
 		});
-		return { gate, auditEvent };
+		return { gate, auditEvent, recalledEvent, memoryField };
+	}
+
+	private buildHolographicMemoryField(input: {
+		sessionEvents: AkashaEvent[];
+		projectTimeline?: ReturnType<typeof buildAkashaProjectTimeline>;
+		userTimeline?: ReturnType<typeof buildAkashaUserTimeline>;
+		settings?: ResolvedAkashaHolographicMemorySettings;
+		latestUserText?: string;
+		cwd: string;
+		pendingInboxItemIds?: string[];
+		strictRepairMissingEventIds?: string[];
+		eventTime?: string;
+	}): AkashaReconstructedMemoryField | undefined {
+		const settings = input.settings;
+		if (!settings?.enabled || !settings.injectIntoActionGate) return undefined;
+		const events = input.projectTimeline?.events ?? input.sessionEvents;
+		const traces = buildAkashaMemoryTraces(events);
+		if (traces.length === 0) return undefined;
+		const cue = buildAkashaMemoryCue({
+			latestUserText: input.latestUserText,
+			cwd: input.cwd,
+			sessionEvents: input.sessionEvents,
+			projectTimeline: input.projectTimeline,
+			userTimeline: input.userTimeline,
+			pendingInboxItemIds: input.pendingInboxItemIds,
+			strictRepairMissingEventIds: input.strictRepairMissingEventIds,
+			now: input.eventTime,
+		});
+		const field = reconstructAkashaMemoryField({
+			events,
+			traces,
+			cue,
+			options: {
+				maxTraces: settings.maxTraces,
+				maxEpisodes: settings.maxEpisodes,
+				maxLessons: settings.maxLessons,
+				maxProcedures: settings.maxProcedures,
+				maxWarnings: settings.maxWarnings,
+			},
+		});
+		if (
+			field.episodes.length === 0 &&
+			field.lessons.length === 0 &&
+			field.procedures.length === 0 &&
+			field.warnings.length === 0
+		) {
+			return undefined;
+		}
+		return field;
 	}
 
 	evaluatePolicy(event: ToolCallEvent, settings: ResolvedAkashaActionGateSettings): AkashaToolGateDecision {

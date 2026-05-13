@@ -1,4 +1,5 @@
 import { projectAkashaGovernedEvents } from "./governance-projection.js";
+import { type AkashaReconstructedMemoryField, formatAkashaHolographicMemoryContext } from "./holographic-memory.js";
 import { buildKarmaLedger } from "./karma-ledger.js";
 import { buildOpenLoopLedger } from "./open-loops.js";
 import type { AkashaProjectTimeline } from "./project-timeline.js";
@@ -10,6 +11,7 @@ export interface AkashaActionGateOptions {
 	sessionEvents: AkashaEvent[];
 	projectTimeline?: AkashaProjectTimeline;
 	userTimeline?: AkashaUserTimeline;
+	holographicMemory?: AkashaReconstructedMemoryField;
 	maxItems?: number;
 }
 
@@ -31,6 +33,7 @@ export function buildAkashaActionGateContext(options: AkashaActionGateOptions): 
 	const preferences = options.userTimeline?.preferences.slice(0, maxItems) ?? [];
 	const collaborationHints = options.userTimeline?.collaborationHints.slice(0, maxItems) ?? [];
 	const corrections = options.userTimeline?.corrections.slice(0, maxItems) ?? [];
+	const holographicMemory = options.holographicMemory;
 	const eventIds = new Set<string>();
 	const sections = new Set<string>();
 
@@ -125,6 +128,14 @@ export function buildAkashaActionGateContext(options: AkashaActionGateOptions): 
 		}
 	}
 
+	if (holographicMemory && hasHolographicMemory(holographicMemory)) {
+		hasFacts = true;
+		sections.add("holographic_memory");
+		lines.push(formatAkashaHolographicMemoryContext(holographicMemory));
+		for (const eventId of holographicMemory.recalledEventIds.slice(0, maxItems * 2)) eventIds.add(eventId);
+		for (const eventId of holographicMemory.sourceEventIds.slice(0, maxItems * 2)) eventIds.add(eventId);
+	}
+
 	lines.push(
 		"- Operating policy: continue unresolved causal chains unless the user changed goals; validate modified artifacts before closing; use prior corrections to adjust new predictions.",
 	);
@@ -137,6 +148,16 @@ export function buildAkashaActionGateContext(options: AkashaActionGateOptions): 
 		sections: [...sections],
 		tokenEstimate: estimateTokens(lines.join("\n")),
 	};
+}
+
+function hasHolographicMemory(field: AkashaReconstructedMemoryField): boolean {
+	return (
+		field.episodes.length > 0 ||
+		field.lessons.length > 0 ||
+		field.procedures.length > 0 ||
+		field.warnings.length > 0 ||
+		field.suggestedActions.length > 0
+	);
 }
 
 function unresolvedDueCallbacks(events: AkashaEvent[]): Array<{

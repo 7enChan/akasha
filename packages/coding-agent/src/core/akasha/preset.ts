@@ -36,6 +36,16 @@ export function createAkashaDogfoodPreset(): AkashaSettings {
 		temporalProtocol: {
 			syscallAuditMode: "soft",
 		},
+		holographicMemory: {
+			enabled: true,
+			injectIntoActionGate: true,
+			recordRecallEvents: true,
+			maxTraces: 24,
+			maxEpisodes: 3,
+			maxLessons: 3,
+			maxProcedures: 2,
+			maxWarnings: 3,
+		},
 		policyProfile: "dogfood",
 		gateway: {
 			enabled: false,
@@ -77,6 +87,10 @@ export function mergeAkashaSettings(base: AkashaSettings | undefined, override: 
 		temporalProtocol: {
 			...(base?.temporalProtocol ?? {}),
 			...(override.temporalProtocol ?? {}),
+		},
+		holographicMemory: {
+			...(base?.holographicMemory ?? {}),
+			...(override.holographicMemory ?? {}),
 		},
 		gateway: {
 			...(base?.gateway ?? {}),

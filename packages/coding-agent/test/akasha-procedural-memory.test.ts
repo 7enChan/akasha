@@ -1,0 +1,54 @@
+import { describe, expect, it } from "vitest";
+import { buildAkashaProceduralMemories } from "../src/core/akasha/procedural-memory.js";
+import type { AkashaEvent } from "../src/core/akasha/types.js";
+
+describe("Akasha procedural memory", () => {
+	it("derives reusable procedures from successful validation commands", () => {
+		const procedures = buildAkashaProceduralMemories([
+			event(1, "command.executed", {
+				command: "npm --prefix packages/coding-agent test -- akasha",
+				exitCode: 0,
+				cwd: "/repo",
+			}),
+		]);
+
+		expect(procedures).toHaveLength(1);
+		expect(procedures[0]).toMatchObject({
+			title: "Validate with npm --prefix packages/coding-agent test -- akasha",
+			validation: ["npm --prefix packages/coding-agent test -- akasha"],
+			successCount: 1,
+			failureCount: 0,
+		});
+	});
+
+	it("derives cautionary procedures from failure lessons", () => {
+		const procedures = buildAkashaProceduralMemories([
+			event(1, "failure.lesson_learned", {
+				lesson: "Check package root before running tests",
+				failureKey: "bash",
+				confidence: 0.8,
+			}),
+		]);
+
+		expect(procedures[0]?.steps.join(" ")).toContain("Check package root");
+		expect(procedures[0]?.contraindications[0]).toContain("bash");
+	});
+});
+
+function event(sequence: number, kind: AkashaEvent["kind"], payload: Record<string, unknown>): AkashaEvent {
+	return {
+		eventId: `evt-${sequence}`,
+		kind,
+		sessionId: "session-1",
+		streamId: "session:session-1",
+		sequence,
+		eventTime: new Date(sequence * 1000).toISOString(),
+		recordedTime: new Date(sequence * 1000).toISOString(),
+		actor: "system",
+		parentEventIds: [],
+		payload,
+		importance: 0.5,
+		ttlPolicy: "long_term",
+		version: 1,
+	};
+}

@@ -51,6 +51,13 @@ akasha inbox run --limit 5
 akasha inbox consume all
 ```
 
+Run offline sleep replay consolidation:
+
+```bash
+akasha sleep status --scope project
+akasha sleep run --scope project
+```
+
 Run the Telegram gateway as an always-on IM entrypoint:
 
 ```bash
@@ -182,6 +189,8 @@ Inside an Akasha-enabled session, use:
 /akasha cache status
 /akasha cache rebuild
 /akasha cache clear
+/akasha sleep status
+/akasha sleep run
 /akasha task-model
 /akasha doctor
 /akasha why <eventId|toolCallId>
@@ -237,6 +246,37 @@ In strict mode, unresolved missing-syscall audits are also injected into the nex
 Reflection and embeddings remain opt-in. When enabled, reflection runs over governed events, so suppressed/redacted sources do not become long-term crystals. Crystal payloads include `sourceEventIds` for auditability and governance propagation.
 
 Embedding stores support tombstone, purge, and compact operations. Maintenance tombstones embedding targets that fall out of governed projections, so suppressed/redacted event sources do not continue to appear in semantic search results.
+
+M46 adds the first Holographic Memory Layer primitive: memory traces. Traces are deterministic projections from governed events, not a new fact source. A single event can leave semantic, artifact, tool, failure, success, callback, policy, valence, and skill traces. Trace projections are cached under the existing Akasha projection cache and can be deleted or rebuilt from the JSONL event log.
+
+M47-M50 turn traces into a cue-driven memory cortex. The current user text, cwd, active artifacts, pending callbacks, recent failures, policy pressure, and strict protocol gaps form an `AkashaMemoryCue`. Akasha scores traces by resonance, reconstructs a compact memory field, and can inject it into Action Gate as `<akasha_holographic_memory>`. When injected, Akasha writes `memory.recalled`; tool calls following the recall write `memory.applied`, and tool outcomes write `memory.reinforced` or `memory.weakened`.
+
+Sleep replay is the offline consolidation path:
+
+```bash
+akasha sleep run --scope project
+```
+
+It writes `sleep.replay.started` and `sleep.replay.completed`, then derives repeated failure lessons, callback workflow patterns, procedure candidates, and low-value decay markers. Procedures are derived memories with steps, validation commands, confidence, and `sourceEventIds`; they remain projections over the event log, not a replacement for the original events.
+
+Holographic memory is controlled by:
+
+```json
+{
+  "akasha": {
+    "holographicMemory": {
+      "enabled": true,
+      "injectIntoActionGate": true,
+      "recordRecallEvents": true,
+      "maxTraces": 24,
+      "maxEpisodes": 3,
+      "maxLessons": 3,
+      "maxProcedures": 2,
+      "maxWarnings": 3
+    }
+  }
+}
+```
 
 ## Storage
 

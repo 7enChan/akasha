@@ -265,6 +265,16 @@ describe("AkashaGatewayRunner", () => {
 			},
 			privacy: { redactSecrets: true },
 			temporalProtocol: { syscallAuditMode: "soft" },
+			holographicMemory: {
+				enabled: false,
+				injectIntoActionGate: false,
+				recordRecallEvents: true,
+				maxTraces: 24,
+				maxEpisodes: 3,
+				maxLessons: 3,
+				maxProcedures: 2,
+				maxWarnings: 3,
+			},
 			policyProfile: "dogfood",
 			gateway: {
 				enabled: true,

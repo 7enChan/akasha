@@ -283,6 +283,16 @@ describe("Akasha collector extension", () => {
 					},
 				},
 			},
+			holographicMemory: {
+				enabled: false,
+				injectIntoActionGate: false,
+				recordRecallEvents: true,
+				maxTraces: 24,
+				maxEpisodes: 3,
+				maxLessons: 3,
+				maxProcedures: 2,
+				maxWarnings: 3,
+			},
 			policyProfile: "dogfood",
 		});
 	});

@@ -84,6 +84,16 @@ describe("SettingsManager", () => {
 					},
 				},
 				temporalProtocol: { syscallAuditMode: "soft" },
+				holographicMemory: {
+					enabled: false,
+					injectIntoActionGate: false,
+					recordRecallEvents: true,
+					maxTraces: 24,
+					maxEpisodes: 3,
+					maxLessons: 3,
+					maxProcedures: 2,
+					maxWarnings: 3,
+				},
 				policyProfile: "dogfood",
 			});
 		});
@@ -145,6 +155,16 @@ describe("SettingsManager", () => {
 					temporalProtocol: {
 						syscallAuditMode: "strict",
 					},
+					holographicMemory: {
+						enabled: true,
+						injectIntoActionGate: true,
+						recordRecallEvents: false,
+						maxTraces: 7.9,
+						maxEpisodes: 2.5,
+						maxLessons: 4.2,
+						maxProcedures: 3.9,
+						maxWarnings: 5.1,
+					},
 					policyProfile: "autonomous",
 				},
 			});
@@ -205,6 +225,16 @@ describe("SettingsManager", () => {
 					},
 				},
 				temporalProtocol: { syscallAuditMode: "strict" },
+				holographicMemory: {
+					enabled: true,
+					injectIntoActionGate: true,
+					recordRecallEvents: false,
+					maxTraces: 7,
+					maxEpisodes: 2,
+					maxLessons: 4,
+					maxProcedures: 3,
+					maxWarnings: 5,
+				},
 				policyProfile: "autonomous",
 			});
 		});

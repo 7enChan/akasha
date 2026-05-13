@@ -654,6 +654,11 @@ M0 Event Ontology
 	                                                            -> M42 Gateway Callback Modes
 	                                                              -> M43 Strict Syscall Repair Loop
 	                                                                -> M44 Policy Profiles
+	                                                                  -> M46 Memory Trace Field
+	                                                                    -> M47 Cue Reconstruction
+	                                                                      -> M48 Recall Events
+	                                                                        -> M49 Sleep Replay
+	                                                                          -> M50 Procedural Memory
 ```
 
 ## 每阶段通用质量门槛
@@ -668,39 +673,38 @@ M0 Event Ontology
 
 ## 当前优先级
 
-当前已完成 **M42-M44** 第一轮切片：
+当前已完成 **M46-M50 Holographic Memory Layer** 第一轮切片：
 
-- **M42 Gateway Callback Modes：** Telegram gateway callback delivery 支持 `notify_only`、`inbox_only`、`ask_before_run`、`auto_run_safe`，默认仍是保守通知模式。
-- **M43 Strict Syscall Repair Loop：** strict temporal protocol 会把未修复的 `time_syscall.missing` 注入下一次行动前上下文，并记录 `time_syscall.repair_prompt.injected`。
-- **M44 Policy Profiles：** `akasha.policyProfile` 支持 `observe`、`dogfood`、`strict`、`autonomous`，Temporal Kernel、callback runner 和 gateway 共享同一策略规则选择。
+- **Memory Trace Projection：** governed Akasha events 可以投影成 semantic、artifact、tool、failure、success、callback、policy、valence、skill 等多维 trace。
+- **Deterministic Trace IDs：** trace id 由 `eventId + kind + key` 派生，cache rebuild 后保持稳定。
+- **Projection Cache：** memory traces 复用 Akasha projection cache，仍然是可删除、可重建的索引，不是事实源。
+- **Cue Reconstruction：** latest user text、cwd、active files、callbacks、recent failures、policy pressure 和 strict repair gaps 组成 `AkashaMemoryCue`。
+- **Memory Field：** cue 会通过 trace resonance 重构 episodes、lessons、procedures、warnings 和 suggested actions，并克制地进入 Action Gate。
+- **Recall Events：** HML 注入时写 `memory.recalled`，`action_gate.injected` parent 到 recall；后续 tool action 会写 `memory.applied`，结果写 `memory.reinforced` 或 `memory.weakened`。
+- **Sleep Replay：** `akasha sleep status|run` 与 `/akasha sleep status|run` 可离线生成 failure lessons、workflow patterns、procedure candidates 和 memory decay markers。
+- **Procedural Memory：** 成功 validation command、workflow optimization 和 failure lesson 可以投影成带 steps、validation、confidence、sourceEventIds 的 procedure。
 
 推荐下一轮开发标题：
 
 ```text
-Akasha M45: Autonomous Callback Execution and End-to-end Temporal Closure Eval
+Akasha M51: Memory Reconsolidation and Longitudinal Evaluation
 ```
 
-建议第一批文件边界：
+建议下一批文件边界：
 
-- `packages/coding-agent/src/gateway/runner.ts`
-- `packages/coding-agent/src/core/akasha/callback-runner.ts`
-- `packages/coding-agent/src/core/akasha/callback-inbox.ts`
-- `packages/coding-agent/src/core/akasha/collector-extension.ts`
-- `packages/coding-agent/src/core/akasha/policy-kernel.ts`
-- `packages/coding-agent/src/core/akasha/time-syscall-audit.ts`
-- `packages/coding-agent/test/akasha-temporal-behavior-eval.test.ts`
-- `packages/coding-agent/test/gateway-runner.test.ts`
+- `packages/coding-agent/src/core/akasha/memory-reconsolidation.ts`
+- `packages/coding-agent/src/core/akasha/memory-feedback-eval.ts`
+- `packages/coding-agent/test/akasha-memory-reconsolidation.test.ts`
+- `packages/coding-agent/test/akasha-temporal-closure-e2e.test.ts`
 
-建议第一批命令：
+建议下一批命令：
 
-- `akasha gateway status`
-- `akasha daemon run --dispatch auto_run_safe`
-- `akasha inbox status`
-- `/akasha why <eventId>`
+- `/akasha why <memory.recalled eventId>`
+- `akasha sleep run --scope project`
+- `npm --prefix packages/coding-agent test -- akasha-holographic-memory akasha-sleep-replay akasha-procedural-memory`
 
-建议第一批验收：
+建议下一批验收：
 
-- 构建一条端到端 fixture：commitment -> callback due -> gateway/inbox dispatch -> context injection -> syscall resolve -> callback/inbox completed -> later recall。
-- `auto_run_safe` 只自动执行经过 policy 判定的低风险 callback，高风险 callback 留在 inbox/manual review。
-- strict repair prompt 被处理后能自动关闭对应 `time_syscall.missing` 的 repair gap。
-- `/akasha why` 能解释 gateway callback delivery、auto-run、reply、syscall closure 的完整因果链。
+- 用户纠正后能写 `memory.reconsolidated`，并削弱旧 memory field。
+- callback resume -> action -> syscall close -> recall reinforced 的端到端 fixture 可以稳定通过。
+- sleep replay 输出的 procedure 后续被 Action Gate 召回并能被 outcome 强化或削弱。

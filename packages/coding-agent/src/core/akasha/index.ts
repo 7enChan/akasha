@@ -81,6 +81,15 @@ export type { AkashaGovernanceProjection } from "./governance-projection.js";
 export { projectAkashaGovernedEvents } from "./governance-projection.js";
 export type { AkashaHeartbeatController, AkashaHeartbeatOptions } from "./heartbeat.js";
 export { createAkashaHeartbeat } from "./heartbeat.js";
+export type {
+	AkashaMemoryEpisode,
+	AkashaMemoryLesson,
+	AkashaMemoryPattern,
+	AkashaMemorySuggestedAction,
+	AkashaMemoryWarning,
+	AkashaReconstructedMemoryField,
+} from "./holographic-memory.js";
+export { formatAkashaHolographicMemoryContext, reconstructAkashaMemoryField } from "./holographic-memory.js";
 export { JsonlAkashaStore } from "./jsonl-store.js";
 export type {
 	AkashaKarmaLedger,
@@ -107,6 +116,8 @@ export {
 	mapToolRequested,
 	truncateText,
 } from "./mapper.js";
+export type { AkashaMemoryCue, AkashaMemoryCueOptions } from "./memory-cue.js";
+export { buildAkashaMemoryCue } from "./memory-cue.js";
 export type { AkashaMemoryGovernanceAction, AkashaMemoryGovernanceState } from "./memory-governance.js";
 export {
 	buildMemoryGovernance,
@@ -115,6 +126,17 @@ export {
 	filterSuppressedEvents,
 	isMemoryGovernanceEvent,
 } from "./memory-governance.js";
+export {
+	createMemoryAppliedDraft,
+	createMemoryOutcomeDraft,
+	createMemoryRecalledDraft,
+	createMemoryReconsolidatedDraft,
+} from "./memory-recall-events.js";
+export type { AkashaMemoryResonanceOptions, AkashaMemoryTraceScore } from "./memory-resonance.js";
+export { rankAkashaMemoryTraces, scoreAkashaMemoryTrace } from "./memory-resonance.js";
+export type { AkashaMemoryTrace, AkashaMemoryTraceKind } from "./memory-trace.js";
+export { buildAkashaMemoryTraces, createAkashaMemoryTrace } from "./memory-trace.js";
+export { buildCachedAkashaMemoryTraces, memoryTraceProjectionCacheKey } from "./memory-trace-cache.js";
 export type { AkashaOpenLoopRecord } from "./open-loops.js";
 export { buildOpenLoopLedger, deriveOpenLoopEvents } from "./open-loops.js";
 export { compareAkashaEvents, orderAkashaEvents } from "./ordering.js";
@@ -136,6 +158,14 @@ export {
 	rulesForAkashaPolicyProfile,
 } from "./policy-kernel.js";
 export { createAkashaDogfoodPreset, mergeAkashaSettings } from "./preset.js";
+export type { AkashaProceduralMemoryOptions, AkashaProcedure } from "./procedural-memory.js";
+export {
+	buildAkashaProceduralMemories,
+	createSkillProcedureEventDraft,
+	formatAkashaProcedures,
+} from "./procedural-memory.js";
+export type { AkashaProcedurePolicy } from "./procedure-policy.js";
+export { DEFAULT_AKASHA_PROCEDURE_POLICY, isValidationProcedureCommand } from "./procedure-policy.js";
 export type {
 	AkashaProjectTimeline,
 	AkashaProjectTimelineOptions,
@@ -204,6 +234,8 @@ export {
 	loadAkashaProjectTimeline,
 	resolveAkashaEventsDir,
 } from "./session-index.js";
+export type { AkashaSleepReplayOptions, AkashaSleepReplayResult } from "./sleep-replay.js";
+export { buildAkashaSleepReplayStatus, runAkashaSleepReplayPass } from "./sleep-replay.js";
 export type {
 	AkashaCallbackState,
 	AkashaDecisionState,

@@ -70,6 +70,7 @@ export interface AkashaSettings {
 	privacy?: AkashaPrivacySettings;
 	gateway?: AkashaGatewaySettings;
 	temporalProtocol?: AkashaTemporalProtocolSettings;
+	holographicMemory?: AkashaHolographicMemorySettings;
 	policyProfile?: AkashaPolicyProfile; // default: "dogfood"
 }
 
@@ -85,6 +86,7 @@ export interface ResolvedAkashaSettings {
 	privacy: ResolvedAkashaPrivacySettings;
 	gateway: ResolvedAkashaGatewaySettings;
 	temporalProtocol: ResolvedAkashaTemporalProtocolSettings;
+	holographicMemory: ResolvedAkashaHolographicMemorySettings;
 	policyProfile: AkashaPolicyProfile;
 }
 
@@ -214,6 +216,28 @@ export interface AkashaTemporalProtocolSettings {
 
 export interface ResolvedAkashaTemporalProtocolSettings {
 	syscallAuditMode: "soft" | "strict";
+}
+
+export interface AkashaHolographicMemorySettings {
+	enabled?: boolean; // default: false
+	injectIntoActionGate?: boolean; // default: false
+	recordRecallEvents?: boolean; // default: true
+	maxTraces?: number; // default: 24
+	maxEpisodes?: number; // default: 3
+	maxLessons?: number; // default: 3
+	maxProcedures?: number; // default: 2
+	maxWarnings?: number; // default: 3
+}
+
+export interface ResolvedAkashaHolographicMemorySettings {
+	enabled: boolean;
+	injectIntoActionGate: boolean;
+	recordRecallEvents: boolean;
+	maxTraces: number;
+	maxEpisodes: number;
+	maxLessons: number;
+	maxProcedures: number;
+	maxWarnings: number;
 }
 
 export type TransportSetting = Transport;
@@ -864,6 +888,7 @@ export class SettingsManager {
 		const gateway = this.settings.akasha?.gateway;
 		const telegramGateway = gateway?.platforms?.telegram;
 		const temporalProtocol = this.settings.akasha?.temporalProtocol;
+		const holographicMemory = this.settings.akasha?.holographicMemory;
 		return {
 			enabled: this.settings.akasha?.enabled ?? false,
 			injectTemporalBrief: this.settings.akasha?.injectTemporalBrief ?? false,
@@ -941,6 +966,16 @@ export class SettingsManager {
 			},
 			temporalProtocol: {
 				syscallAuditMode: temporalProtocol?.syscallAuditMode === "strict" ? "strict" : "soft",
+			},
+			holographicMemory: {
+				enabled: holographicMemory?.enabled ?? false,
+				injectIntoActionGate: holographicMemory?.injectIntoActionGate ?? false,
+				recordRecallEvents: holographicMemory?.recordRecallEvents ?? true,
+				maxTraces: positiveInt(holographicMemory?.maxTraces, 24, 1, 100),
+				maxEpisodes: positiveInt(holographicMemory?.maxEpisodes, 3, 1, 12),
+				maxLessons: positiveInt(holographicMemory?.maxLessons, 3, 1, 12),
+				maxProcedures: positiveInt(holographicMemory?.maxProcedures, 2, 1, 8),
+				maxWarnings: positiveInt(holographicMemory?.maxWarnings, 3, 1, 12),
 			},
 			policyProfile: resolveAkashaPolicyProfile(this.settings.akasha?.policyProfile),
 		};
@@ -1374,4 +1409,9 @@ function resolveAkashaPolicyProfile(value: AkashaSettings["policyProfile"]): Aka
 function resolveAkashaGatewayCallbackMode(value: AkashaGatewaySettings["callbackMode"]): AkashaGatewayCallbackMode {
 	if (value === "inbox_only" || value === "ask_before_run" || value === "auto_run_safe") return value;
 	return "notify_only";
+}
+
+function positiveInt(value: number | undefined, fallback: number, min: number, max: number): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+	return Math.max(min, Math.min(max, Math.floor(value)));
 }

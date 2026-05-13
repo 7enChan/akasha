@@ -132,6 +132,14 @@ Use `akasha init --global` to write the preset to global settings instead of the
 | `akasha.maintenance.runOnSessionStart` | boolean | `false` | Run one maintenance pass immediately after the session starts |
 | `akasha.privacy.redactSecrets` | boolean | `true` | Redact common secrets before appending Akasha events |
 | `akasha.temporalProtocol.syscallAuditMode` | string | `"soft"` | `"soft"` records missing syscalls plus heuristic fallback events; `"strict"` records missing syscalls without fallback events until an explicit syscall repairs the protocol gap |
+| `akasha.holographicMemory.enabled` | boolean | `false` | Enable cue-driven holographic memory reconstruction |
+| `akasha.holographicMemory.injectIntoActionGate` | boolean | `false` | Inject reconstructed memory field into Action Gate context |
+| `akasha.holographicMemory.recordRecallEvents` | boolean | `true` | Record `memory.recalled` when HML enters Action Gate |
+| `akasha.holographicMemory.maxTraces` | number | `24` | Maximum traces scored into one reconstructed memory field |
+| `akasha.holographicMemory.maxEpisodes` | number | `3` | Maximum reconstructed episodes injected into Action Gate |
+| `akasha.holographicMemory.maxLessons` | number | `3` | Maximum lessons injected into Action Gate |
+| `akasha.holographicMemory.maxProcedures` | number | `2` | Maximum procedural memories injected into Action Gate |
+| `akasha.holographicMemory.maxWarnings` | number | `3` | Maximum memory warnings injected into Action Gate |
 | `akasha.policyProfile` | string | `"dogfood"` | Runtime policy profile: `"observe"`, `"dogfood"`, `"strict"`, or `"autonomous"` |
 | `akasha.gateway.enabled` | boolean | `false` | Enable the long-running IM gateway runtime |
 | `akasha.gateway.defaultCwd` | string | current cwd | Default workspace used by gateway chats |
@@ -142,7 +150,7 @@ Use `akasha init --global` to write the preset to global settings instead of the
 | `akasha.gateway.platforms.telegram.allowedUsersEnv` | string | `"TELEGRAM_ALLOWED_USERS"` | Comma-separated Telegram user allowlist environment variable |
 | `akasha.gateway.platforms.telegram.homeChatEnv` | string | `"TELEGRAM_HOME_CHAT"` | Chat that receives daemon callback notifications |
 
-Useful inspection commands include `/akasha timeline [n]` for the current session, `/akasha project-timeline [n]` for all sessions in the current project `cwd`, `/akasha user-timeline` for user-level memory, `/akasha action-gate` for the pre-action control brief, `/akasha queue` for due callbacks, `/akasha callback-complete <callbackId> [evidenceEventId]` and `/akasha callback-cancel <callbackId> [reason]` for callback lifecycle, `/akasha maintain [session|project|all]` for detached maintenance, `/akasha memory-review` plus `/akasha memory-pin|memory-unpin|memory-suppress <eventId>` for memory governance, `/akasha redact <eventId> <field> [reason]` for append-only redaction, `/akasha project-state project` for cross-session project state, `/akasha scheduler` for a manual Karma/scheduler pass, and `/akasha doctor` for schema, redaction, and retention diagnostics.
+Useful inspection commands include `/akasha timeline [n]` for the current session, `/akasha project-timeline [n]` for all sessions in the current project `cwd`, `/akasha user-timeline` for user-level memory, `/akasha action-gate` for the pre-action control brief, `/akasha queue` for due callbacks, `/akasha sleep status|run` for offline memory replay, `/akasha callback-complete <callbackId> [evidenceEventId]` and `/akasha callback-cancel <callbackId> [reason]` for callback lifecycle, `/akasha maintain [session|project|all]` for detached maintenance, `/akasha memory-review` plus `/akasha memory-pin|memory-unpin|memory-suppress <eventId>` for memory governance, `/akasha redact <eventId> <field> [reason]` for append-only redaction, `/akasha project-state project` for cross-session project state, `/akasha scheduler` for a manual Karma/scheduler pass, and `/akasha doctor` for schema, redaction, and retention diagnostics.
 
 Callback resume closure is syscall-driven. `akasha_resolve_commitment` and `akasha_check_prediction` both accept optional `callbackId` and `inboxItemId`; when supplied, Akasha automatically appends `time.callback.completed` and `callback.inbox.consumed`. In strict syscall audit mode, Akasha injects unresolved missing-syscall audits into the next model context as an auditable repair prompt.
 
@@ -167,6 +175,11 @@ Callback resume closure is syscall-driven. `akasha_resolve_commitment` and `akas
     },
     "temporalProtocol": {
       "syscallAuditMode": "soft"
+    },
+    "holographicMemory": {
+      "enabled": true,
+      "injectIntoActionGate": true,
+      "recordRecallEvents": true
     },
     "policyProfile": "dogfood",
     "gateway": {

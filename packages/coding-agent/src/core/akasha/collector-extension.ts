@@ -38,6 +38,7 @@ import {
 	mapToolRequested,
 	truncateText,
 } from "./mapper.js";
+import { createMemoryAppliedDraft, createMemoryOutcomeDraft } from "./memory-recall-events.js";
 import { deriveOpenLoopEvents } from "./open-loops.js";
 import { rulesForAkashaPolicyProfile } from "./policy-kernel.js";
 import { createAkashaTemporalKernel } from "./temporal-kernel.js";
@@ -122,6 +123,8 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 		const sessionEntryEventIds = new Map<string, string>();
 		const injectedInboxItemIds = new Set<string>();
 		const injectedStrictRepairKeys = new Set<string>();
+		const toolMemoryApplications = new Map<string, { recallEventId: string; appliedEventId: string }>();
+		let latestRecallEventId: string | undefined;
 
 		const nowIso = () => new Date().toISOString();
 		const nextSourceKey = (scope: string) =>
@@ -181,6 +184,8 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			sessionEntryEventIds.clear();
 			injectedInboxItemIds.clear();
 			injectedStrictRepairKeys.clear();
+			toolMemoryApplications.clear();
+			latestRecallEventId = undefined;
 		};
 
 		const append = (draft: AkashaEventDraft): AkashaEvent | undefined => {
@@ -606,13 +611,35 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 					reason: formatPolicyBlockReason(gateDecision),
 				};
 			}
+			const applied = latestRecallEventId
+				? append(
+						createMemoryAppliedDraft({
+							sessionId: sessionId ?? ctx.sessionManager.getSessionId(),
+							streamId,
+							recallEventId: latestRecallEventId,
+							actionType: "tool_call",
+							toolName: event.toolName,
+							toolCallId: event.toolCallId,
+							parentEventIds: parents(latestRecallEventId, policyEventId, ...parentEventIds),
+							correlationId: currentTurnEventId,
+							sourceKey: `memory-applied:${sessionId}:${event.toolCallId}:${latestRecallEventId}`,
+							eventTime: nowIso(),
+						}),
+					)
+				: undefined;
+			if (applied && latestRecallEventId) {
+				toolMemoryApplications.set(event.toolCallId, {
+					recallEventId: latestRecallEventId,
+					appliedEventId: applied.eventId,
+				});
+			}
 			const requested = append(
 				mapToolRequested(event, {
 					sessionId: sessionId ?? ctx.sessionManager.getSessionId(),
 					streamId,
 					eventTime: nowIso(),
 					sourceKey: `tool-call:${sessionId}:${event.toolCallId}:requested`,
-					parentEventIds,
+					parentEventIds: parents(applied?.eventId, ...parentEventIds),
 					correlationId: currentTurnEventId,
 				}),
 			);
@@ -637,6 +664,24 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			);
 			if (completed) {
 				toolCompletedEventIds.set(event.toolCallId, completed.eventId);
+				const application = toolMemoryApplications.get(event.toolCallId);
+				if (application) {
+					append(
+						createMemoryOutcomeDraft({
+							kind: event.isError ? "memory.weakened" : "memory.reinforced",
+							sessionId: sessionId ?? ctx.sessionManager.getSessionId(),
+							streamId,
+							recallEventId: application.recallEventId,
+							appliedEventId: application.appliedEventId,
+							outcomeEvent: completed,
+							reason: event.isError ? "tool_result_failed" : "tool_result_succeeded",
+							sourceKey: `memory-outcome:${sessionId}:${event.toolCallId}:${
+								event.isError ? "weakened" : "reinforced"
+							}`,
+							eventTime: nowIso(),
+						}),
+					);
+				}
 			}
 
 			const outcome = mapToolOutcome(event, {
@@ -691,6 +736,8 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 				const result = createKernel()?.buildActionContext({
 					cwd: ctx.cwd,
 					settings: options.settings.actionGate,
+					holographicMemory: options.settings.holographicMemory,
+					latestUserText: queryText,
 					parentEventIds: parents(currentTurnEventId, latestLeafEventId),
 					correlationId: currentTurnEventId,
 					sourceKey: nextSourceKey("action-gate"),
@@ -698,6 +745,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 				const gate = result?.gate;
 				if (gate) {
 					if (result.auditEvent) latestLeafEventId = result.auditEvent.eventId;
+					if (result.recalledEvent) latestRecallEventId = result.recalledEvent.eventId;
 					messages.push({
 						role: "custom",
 						customType: "akasha.action_gate",
