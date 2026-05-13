@@ -54,6 +54,11 @@ export interface TelegramFile {
 	file_path?: string;
 }
 
+export interface TelegramBotCommand {
+	command: string;
+	description: string;
+}
+
 export class TelegramApiError extends Error {
 	constructor(
 		message: string,
@@ -101,6 +106,12 @@ export class TelegramClient {
 		return this.call<boolean>("sendChatAction", {
 			chat_id: chatId,
 			action,
+		});
+	}
+
+	async setMyCommands(commands: TelegramBotCommand[]): Promise<boolean> {
+		return this.call<boolean>("setMyCommands", {
+			commands,
 		});
 	}
 

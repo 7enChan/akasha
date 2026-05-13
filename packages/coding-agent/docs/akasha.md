@@ -90,9 +90,14 @@ Inside Telegram:
 /start
 /status
 /new
+/model [provider/modelId]
+/thinking [off|minimal|low|medium|high|xhigh]
 /stop
+/timeline [n]
 /setcwd /path/to/workspace
 ```
+
+On gateway startup, Akasha registers a compact native Telegram menu with `/new`, `/model`, `/thinking`, `/stop`, and `/timeline`. Other commands remain available by typing them directly.
 
 For Linux always-on deployment, install a user-level systemd service:
 

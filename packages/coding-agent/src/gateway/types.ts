@@ -65,12 +65,18 @@ export interface AkashaGatewayOutgoingMessage {
 	text: string;
 }
 
+export interface AkashaGatewayCommandMenuItem {
+	command: string;
+	description: string;
+}
+
 export interface AkashaGatewayPlatformAdapter {
 	name: AkashaGatewayPlatform;
 	start(): Promise<void>;
 	stop(): Promise<void>;
 	sendMessage(message: AkashaGatewayOutgoingMessage): Promise<void>;
 	sendChatAction?(chatId: string, action?: "typing"): Promise<void>;
+	setCommands?(commands: AkashaGatewayCommandMenuItem[]): Promise<void>;
 	sendMedia?(chatId: string, filePath: string, caption?: string): Promise<void>;
 }
 

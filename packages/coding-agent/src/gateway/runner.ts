@@ -1,10 +1,13 @@
 import { existsSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { buildRunnableCallbacks, runAkashaCallbackRunner } from "../core/akasha/callback-runner.js";
 import { buildAkashaDaemonQueue } from "../core/akasha/daemon-queue.js";
 import { JsonlAkashaStore } from "../core/akasha/jsonl-store.js";
 import { buildAkashaSessionIndex } from "../core/akasha/session-index.js";
-import type { ResolvedAkashaSettings } from "../core/settings-manager.js";
+import type { AkashaEvent } from "../core/akasha/types.js";
+import { AuthStorage } from "../core/auth-storage.js";
+import { ModelRegistry } from "../core/model-registry.js";
+import { type ResolvedAkashaSettings, SettingsManager } from "../core/settings-manager.js";
 import { DefaultAkashaGatewayAgentRunner } from "./agent-runner.js";
 import { type ResolveAkashaGatewayConfigOptions, resolveAkashaGatewayConfig } from "./config.js";
 import { AkashaGatewayEventWriter } from "./events.js";
@@ -18,11 +21,23 @@ import { TelegramClient } from "./telegram-client.js";
 import type {
 	AkashaGatewayAgentRunner,
 	AkashaGatewayChatState,
+	AkashaGatewayCommandMenuItem,
 	AkashaGatewayConfig,
 	AkashaGatewayIncomingMessage,
 	AkashaGatewayMessageHandler,
 	AkashaGatewayPlatformAdapter,
 } from "./types.js";
+
+export const AKASHA_TELEGRAM_MENU_COMMANDS: AkashaGatewayCommandMenuItem[] = [
+	{ command: "new", description: "Start a new Akasha session" },
+	{ command: "model", description: "View or switch the model" },
+	{ command: "thinking", description: "View or switch thinking level" },
+	{ command: "stop", description: "Stop the active run" },
+	{ command: "timeline", description: "Show recent Akasha time events" },
+];
+
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
+type GatewayThinkingLevel = (typeof THINKING_LEVELS)[number];
 
 export interface AkashaGatewayRunnerOptions {
 	config: AkashaGatewayConfig;
@@ -62,6 +77,7 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 
 	async start(): Promise<void> {
 		this.lock.acquire();
+		await this.registerCommandMenu();
 		this.events.appendGateway("telegram", {
 			kind: "gateway.started",
 			subjectId: "akasha.gateway",
@@ -258,6 +274,24 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 			});
 			return;
 		}
+		if (command.name === "model") {
+			await this.adapter.sendMessage({
+				chatId: chat.chatId,
+				text: await this.handleModelCommand(chat, command.args),
+			});
+			return;
+		}
+		if (command.name === "thinking") {
+			await this.adapter.sendMessage({
+				chatId: chat.chatId,
+				text: await this.handleThinkingCommand(chat, command.args),
+			});
+			return;
+		}
+		if (command.name === "timeline") {
+			await this.adapter.sendMessage({ chatId: chat.chatId, text: this.handleTimelineCommand(chat, command.args) });
+			return;
+		}
 		if (command.name === "setcwd") {
 			const cwd = resolve(command.args.trim());
 			if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
@@ -269,6 +303,64 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 			return;
 		}
 		await this.adapter.sendMessage({ chatId: chat.chatId, text: `Unknown Akasha gateway command: /${command.name}` });
+	}
+
+	private async handleModelCommand(chat: AkashaGatewayChatState, args: string): Promise<string> {
+		const settingsManager = SettingsManager.create(chat.cwd, this.options.config.agentDir);
+		const currentProvider = settingsManager.getDefaultProvider();
+		const currentModel = settingsManager.getDefaultModel();
+		const registry = this.createModelRegistry();
+		const requested = parseModelSelection(args, currentProvider);
+		if (!requested) {
+			const available = registry.getAvailable().slice(0, 12);
+			const lines = [`Current model: ${formatCurrentModel(currentProvider, currentModel)}`, "", "Available models:"];
+			if (available.length === 0) {
+				lines.push("- (none with configured auth)");
+			} else {
+				for (const model of available) {
+					lines.push(`- ${model.provider}/${model.id}${model.name === model.id ? "" : ` (${model.name})`}`);
+				}
+			}
+			lines.push("", "Switch with: /model <provider>/<modelId>");
+			return lines.join("\n");
+		}
+
+		const model = registry.find(requested.provider, requested.modelId);
+		if (!model) {
+			return `Model not found: ${requested.provider}/${requested.modelId}\nUse /model to list available models.`;
+		}
+		if (!registry.hasConfiguredAuth(model)) {
+			return `Model exists but auth is not configured: ${requested.provider}/${requested.modelId}`;
+		}
+		settingsManager.setDefaultModelAndProvider(model.provider, model.id);
+		await settingsManager.flush();
+		return `Model switched to ${model.provider}/${model.id}`;
+	}
+
+	private async handleThinkingCommand(chat: AkashaGatewayChatState, args: string): Promise<string> {
+		const settingsManager = SettingsManager.create(chat.cwd, this.options.config.agentDir);
+		const requested = args.trim().toLowerCase();
+		if (!requested) {
+			return [
+				`Current thinking level: ${settingsManager.getDefaultThinkingLevel() ?? "off"}`,
+				`Available: ${THINKING_LEVELS.join(", ")}`,
+				"",
+				"Switch with: /thinking <level>",
+			].join("\n");
+		}
+		if (!isGatewayThinkingLevel(requested)) {
+			return `Invalid thinking level: ${requested}\nAvailable: ${THINKING_LEVELS.join(", ")}`;
+		}
+		settingsManager.setDefaultThinkingLevel(requested);
+		await settingsManager.flush();
+		return `Thinking level switched to ${requested}`;
+	}
+
+	private handleTimelineCommand(chat: AkashaGatewayChatState, args: string): string {
+		const limit = clampTimelineLimit(args);
+		const events = this.collectTimelineEvents(chat.cwd, limit);
+		if (events.length === 0) return "Akasha timeline:\n- (no events yet)";
+		return [`Akasha timeline: last ${events.length} events`, ...events.map(formatTimelineEvent)].join("\n");
 	}
 
 	private async deliverAgentReply(chat: AkashaGatewayChatState, text: string): Promise<void> {
@@ -300,6 +392,15 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 		void sendTyping();
 		const timer = setInterval(() => void sendTyping(), 4000);
 		return () => clearInterval(timer);
+	}
+
+	private async registerCommandMenu(): Promise<void> {
+		if (!this.adapter.setCommands) return;
+		try {
+			await this.adapter.setCommands(AKASHA_TELEGRAM_MENU_COMMANDS);
+		} catch (error) {
+			this.logger.warn(`Telegram command menu registration failed: ${errorMessage(error)}`);
+		}
 	}
 
 	private async deliverDueCallbacks(): Promise<void> {
@@ -378,6 +479,26 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 			return total + buildRunnableCallbacks(store.buildTimeline({ limit: 1000 })).length;
 		}, 0);
 	}
+
+	private createModelRegistry(): ModelRegistry {
+		return ModelRegistry.create(
+			AuthStorage.create(join(this.options.config.agentDir, "auth.json")),
+			join(this.options.config.agentDir, "models.json"),
+		);
+	}
+
+	private collectTimelineEvents(cwd: string, limit: number): AkashaEvent[] {
+		const events: AkashaEvent[] = [];
+		for (const session of buildAkashaSessionIndex({
+			agentDir: this.options.config.agentDir,
+			eventLogDir: this.options.settings.eventLogDir,
+			cwd,
+		})) {
+			const store = new JsonlAkashaStore(session.eventLogPath);
+			events.push(...store.buildTimeline({ limit }));
+		}
+		return events.sort(compareEventsByTime).slice(-limit);
+	}
 }
 
 export function createAkashaGatewayRunnerFromSettings(options: ResolveAkashaGatewayConfigOptions): {
@@ -400,8 +521,70 @@ function parseGatewayCommand(text: string): { name: string; args: string } | und
 	if (!trimmed.startsWith("/")) return undefined;
 	const [nameWithBot = "", ...rest] = trimmed.slice(1).split(/\s+/);
 	const name = nameWithBot.split("@")[0].toLowerCase();
-	if (!["start", "status", "new", "stop", "setcwd"].includes(name)) return undefined;
+	if (!["start", "status", "new", "stop", "setcwd", "model", "thinking", "timeline"].includes(name)) return undefined;
 	return { name, args: rest.join(" ") };
+}
+
+function parseModelSelection(
+	args: string,
+	currentProvider: string | undefined,
+): { provider: string; modelId: string } | undefined {
+	const trimmed = args.trim();
+	if (!trimmed) return undefined;
+	const [first = "", ...rest] = trimmed.split(/\s+/);
+	if (rest.length > 0) return { provider: first, modelId: rest.join(" ") };
+	const slashIndex = first.indexOf("/");
+	if (slashIndex > 0) {
+		return {
+			provider: first.slice(0, slashIndex),
+			modelId: first.slice(slashIndex + 1),
+		};
+	}
+	if (currentProvider) return { provider: currentProvider, modelId: first };
+	return undefined;
+}
+
+function formatCurrentModel(provider: string | undefined, model: string | undefined): string {
+	if (provider && model) return `${provider}/${model}`;
+	return "(not set)";
+}
+
+function isGatewayThinkingLevel(value: string): value is GatewayThinkingLevel {
+	return THINKING_LEVELS.includes(value as GatewayThinkingLevel);
+}
+
+function clampTimelineLimit(args: string): number {
+	const parsed = Number(args.trim());
+	if (!Number.isFinite(parsed)) return 12;
+	return Math.max(1, Math.min(30, Math.floor(parsed)));
+}
+
+function compareEventsByTime(a: AkashaEvent, b: AkashaEvent): number {
+	return eventSortTime(a) - eventSortTime(b);
+}
+
+function eventSortTime(event: AkashaEvent): number {
+	return Date.parse(event.eventTime || event.recordedTime) || 0;
+}
+
+function formatTimelineEvent(event: AkashaEvent): string {
+	const time = new Date(eventSortTime(event)).toISOString().replace("T", " ").slice(0, 19);
+	const target = event.objectId ?? event.subjectId ?? event.toolCallId ?? event.eventId;
+	const summary = summarizeEventPayload(event.payload);
+	return `- ${time} ${event.kind}${target ? ` ${target}` : ""}${summary ? `: ${summary}` : ""}`;
+}
+
+function summarizeEventPayload(payload: Record<string, unknown>): string {
+	for (const key of ["summary", "text", "command", "reason", "path", "messageId"]) {
+		const value = payload[key];
+		if (typeof value === "string" && value.trim()) return truncate(value.trim(), 96);
+		if (typeof value === "number") return String(value);
+	}
+	return "";
+}
+
+function truncate(value: string, max: number): string {
+	return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
 }
 
 function safeMessagePayload(message: AkashaGatewayIncomingMessage): Record<string, unknown> {

@@ -30,6 +30,21 @@ describe("AkashaGatewayRunner", () => {
 		if (existsSync(tempDir)) rmSync(tempDir, { recursive: true, force: true });
 	});
 
+	it("registers the compact Telegram native command menu on startup", async () => {
+		const adapter = new FakeAdapter();
+		const runner = createRunner({ adapter });
+
+		await runner.start();
+
+		expect(adapter.commands.map((command) => command.command)).toEqual([
+			"new",
+			"model",
+			"thinking",
+			"stop",
+			"timeline",
+		]);
+	});
+
 	it("rejects Telegram users outside the allowlist and writes a gateway event", async () => {
 		const adapter = new FakeAdapter();
 		const runner = createRunner({ adapter, allowedUsers: new Set([123]) });
@@ -96,6 +111,42 @@ describe("AkashaGatewayRunner", () => {
 		expect(adapter.sent.map((message) => message.text).join("\n")).toContain("Stopped the active Akasha run");
 		expect(agent.stopCalls).toEqual(["1"]);
 		expect(agent.runs).toHaveLength(0);
+		expect(readGatewayEvents()).toContain("gateway.command.executed");
+	});
+
+	it("handles Telegram menu commands for thinking, model, and timeline", async () => {
+		const adapter = new FakeAdapter();
+		const runner = createRunner({ adapter });
+
+		await runner.handle({
+			platform: "telegram",
+			chatId: "1",
+			messageId: "14",
+			userId: 123,
+			text: "/thinking high",
+			receivedTime: "2026-05-12T00:00:00.000Z",
+		});
+		await runner.handle({
+			platform: "telegram",
+			chatId: "1",
+			messageId: "15",
+			userId: 123,
+			text: "/model",
+			receivedTime: "2026-05-12T00:00:01.000Z",
+		});
+		await runner.handle({
+			platform: "telegram",
+			chatId: "1",
+			messageId: "16",
+			userId: 123,
+			text: "/timeline 5",
+			receivedTime: "2026-05-12T00:00:02.000Z",
+		});
+
+		const sent = adapter.sent.map((message) => message.text).join("\n---\n");
+		expect(sent).toContain("Thinking level switched to high");
+		expect(sent).toContain("Current model:");
+		expect(sent).toContain("Akasha timeline:");
 		expect(readGatewayEvents()).toContain("gateway.command.executed");
 	});
 
@@ -198,6 +249,7 @@ class FakeAdapter implements AkashaGatewayPlatformAdapter {
 	readonly name = "telegram" as const;
 	readonly sent: AkashaGatewayOutgoingMessage[] = [];
 	readonly chatActions: Array<{ chatId: string; action: "typing" }> = [];
+	readonly commands: Array<{ command: string; description: string }> = [];
 
 	async start(): Promise<void> {}
 	async stop(): Promise<void> {}
@@ -206,6 +258,9 @@ class FakeAdapter implements AkashaGatewayPlatformAdapter {
 	}
 	async sendChatAction(chatId: string, action: "typing" = "typing"): Promise<void> {
 		this.chatActions.push({ chatId, action });
+	}
+	async setCommands(commands: Array<{ command: string; description: string }>): Promise<void> {
+		this.commands.push(...commands);
 	}
 }
 

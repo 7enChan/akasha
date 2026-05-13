@@ -3,7 +3,12 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, join } from "node:path";
 import type { AkashaGatewayLogger } from "./logger.js";
 import { TelegramApiError, type TelegramClient, type TelegramMessage, type TelegramUpdate } from "./telegram-client.js";
-import type { AkashaGatewayConfig, AkashaGatewayDownloadedFile, AkashaGatewayMessageHandler } from "./types.js";
+import type {
+	AkashaGatewayCommandMenuItem,
+	AkashaGatewayConfig,
+	AkashaGatewayDownloadedFile,
+	AkashaGatewayMessageHandler,
+} from "./types.js";
 
 export interface TelegramGatewayAdapterOptions {
 	config: AkashaGatewayConfig;
@@ -45,6 +50,10 @@ export class TelegramGatewayAdapter {
 
 	async sendChatAction(chatId: string, action: "typing" = "typing"): Promise<void> {
 		await this.options.client.sendChatAction(chatId, action);
+	}
+
+	async setCommands(commands: AkashaGatewayCommandMenuItem[]): Promise<void> {
+		await this.options.client.setMyCommands(commands);
 	}
 
 	async sendMedia(chatId: string, filePath: string, caption?: string): Promise<void> {

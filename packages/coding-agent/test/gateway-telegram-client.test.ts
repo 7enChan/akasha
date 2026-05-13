@@ -34,6 +34,21 @@ describe("TelegramClient", () => {
 		expect(calls[0].body).toMatchObject({ chat_id: 123, text: "hello" });
 	});
 
+	it("registers native Telegram command menus", async () => {
+		const calls: Array<{ url: string; body: unknown }> = [];
+		const client = new TelegramClient({
+			token: "token",
+			fetchImpl: fakeFetch(calls, { ok: true, result: true }),
+		});
+
+		await client.setMyCommands([{ command: "new", description: "Start a new Akasha session" }]);
+
+		expect(calls[0].url).toBe("https://api.telegram.org/bottoken/setMyCommands");
+		expect(calls[0].body).toEqual({
+			commands: [{ command: "new", description: "Start a new Akasha session" }],
+		});
+	});
+
 	it("surfaces Telegram retry_after as an API error", async () => {
 		const client = new TelegramClient({
 			token: "token",
