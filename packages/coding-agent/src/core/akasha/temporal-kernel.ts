@@ -17,6 +17,7 @@ import {
 } from "./daemon-queue.js";
 import {
 	type AkashaPolicyDecision,
+	type AkashaPolicyRule,
 	type AkashaRuntimePolicyAction,
 	createPolicyEvaluatedPayload,
 	evaluateAkashaRuntimePolicy,
@@ -40,6 +41,7 @@ export interface AkashaTemporalKernelOptions {
 	agentDir: string;
 	eventLogDir?: string;
 	reflection: ResolvedAkashaReflectionSettings;
+	policyRules?: AkashaPolicyRule[];
 }
 
 export interface AkashaActionContextBuildOptions {
@@ -76,6 +78,7 @@ export class AkashaTemporalKernel {
 	private readonly agentDir: string;
 	private readonly eventLogDir?: string;
 	private readonly reflection: ResolvedAkashaReflectionSettings;
+	private readonly policyRules?: AkashaPolicyRule[];
 
 	constructor(options: AkashaTemporalKernelOptions) {
 		this.store = options.store;
@@ -84,6 +87,7 @@ export class AkashaTemporalKernel {
 		this.agentDir = options.agentDir;
 		this.eventLogDir = options.eventLogDir;
 		this.reflection = options.reflection;
+		this.policyRules = options.policyRules;
 	}
 
 	append(draft: AkashaEventDraft): AkashaEvent {
@@ -174,7 +178,8 @@ export class AkashaTemporalKernel {
 	}
 
 	evaluateRuntimePolicy(options: AkashaRuntimePolicyEvaluationOptions): AkashaRuntimePolicyEvaluationResult {
-		const decision = evaluateAkashaRuntimePolicy(options.action);
+		const action = withDefaultRules(options.action, this.policyRules);
+		const decision = evaluateAkashaRuntimePolicy(action);
 		const eventTime = options.eventTime ?? new Date().toISOString();
 		const event = this.store.append({
 			kind: "policy.evaluated",
@@ -183,21 +188,21 @@ export class AkashaTemporalKernel {
 			eventTime,
 			actor: "system",
 			subjectId: "akasha.policy_kernel",
-			objectId: options.action.objectId ?? options.action.subject ?? options.action.type,
+			objectId: action.objectId ?? action.subject ?? action.type,
 			sourceKey:
 				options.sourceKey ??
-				`runtime-policy:${this.sessionId}:${options.action.type}:${options.action.subject ?? "action"}:${eventTime}`,
+				`runtime-policy:${this.sessionId}:${action.type}:${action.subject ?? "action"}:${eventTime}`,
 			parentEventIds: options.parentEventIds ?? [],
 			correlationId: options.correlationId,
 			payload: createPolicyEvaluatedPayload(
 				{
 					actionType: options.action.type,
-					subject: options.action.subject,
-					objectId: options.action.objectId,
-					payload: options.action.payload,
-					evidenceEvents: options.action.evidenceEvents,
-					rules: options.action.rules,
-					now: options.action.now,
+					subject: action.subject,
+					objectId: action.objectId,
+					payload: action.payload,
+					evidenceEvents: action.evidenceEvents,
+					rules: action.rules,
+					now: action.now,
 				},
 				decision,
 			),
@@ -218,6 +223,7 @@ export class AkashaTemporalKernel {
 		return runAkashaCallbackRunner(this.store, {
 			...options,
 			agentDir: options.agentDir ?? this.agentDir,
+			rules: options.rules ?? this.policyRules,
 			reflection: this.reflection,
 		});
 	}
@@ -247,4 +253,12 @@ export function createAkashaTemporalKernel(options: AkashaTemporalKernelOptions)
 
 export function hashText(text: string): string {
 	return createHash("sha256").update(text).digest("hex");
+}
+
+function withDefaultRules(
+	action: AkashaRuntimePolicyAction,
+	rules: AkashaPolicyRule[] | undefined,
+): AkashaRuntimePolicyAction {
+	if (action.rules !== undefined || rules === undefined) return action;
+	return { ...action, rules };
 }

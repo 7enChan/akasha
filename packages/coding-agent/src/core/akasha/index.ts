@@ -30,7 +30,12 @@ export type {
 	AkashaCallbackRunnerResult,
 	AkashaRunnableCallback,
 } from "./callback-runner.js";
-export { buildRunnableCallbacks, createAkashaCallbackDispatcher, runAkashaCallbackRunner } from "./callback-runner.js";
+export {
+	buildRunnableCallbacks,
+	createAkashaCallbackDispatcher,
+	isAkashaCallbackSafeForAutoRun,
+	runAkashaCallbackRunner,
+} from "./callback-runner.js";
 export {
 	createAkashaCollectorExtension,
 	resolveAkashaEmbeddingIndexPath,
@@ -117,15 +122,18 @@ export type {
 	AkashaPolicyDecision,
 	AkashaPolicyDecisionAction,
 	AkashaPolicyEvaluationInput,
+	AkashaPolicyProfile,
 	AkashaPolicyRule,
 	AkashaRuntimeActionType,
 	AkashaRuntimePolicyAction,
 } from "./policy-kernel.js";
 export {
+	AUTONOMOUS_AKASHA_RUNTIME_POLICY_RULES,
 	createPolicyEvaluatedPayload,
 	DEFAULT_AKASHA_RUNTIME_POLICY_RULES,
 	evaluateAkashaPolicy,
 	evaluateAkashaRuntimePolicy,
+	rulesForAkashaPolicyProfile,
 } from "./policy-kernel.js";
 export { createAkashaDogfoodPreset, mergeAkashaSettings } from "./preset.js";
 export type {

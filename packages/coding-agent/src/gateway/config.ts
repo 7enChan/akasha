@@ -26,6 +26,7 @@ export function resolveAkashaGatewayConfig(options: ResolveAkashaGatewayConfigOp
 		enabled: gateway.enabled,
 		agentDir: options.agentDir,
 		defaultCwd,
+		callbackMode: gateway.callbackMode,
 		telegram: {
 			enabled: telegramSettings.enabled,
 			mode,

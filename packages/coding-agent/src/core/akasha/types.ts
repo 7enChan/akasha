@@ -24,6 +24,7 @@ export type AkashaEventKind =
 	| "time_syscall.audit"
 	| "time_syscall.missing"
 	| "time_syscall.repaired"
+	| "time_syscall.repair_prompt.injected"
 	| "message.user.submitted"
 	| "message.agent.completed"
 	| "message.tool_result.recorded"

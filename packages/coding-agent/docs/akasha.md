@@ -93,6 +93,13 @@ akasha gateway status
 akasha gateway
 ```
 
+Gateway callback delivery is controlled by `akasha.gateway.callbackMode`:
+
+- `notify_only` sends a Telegram notification and records dispatch.
+- `inbox_only` queues callback prompts into the Akasha inbox.
+- `ask_before_run` queues the prompt and tells the home chat to review it before acting.
+- `auto_run_safe` queues every prompt, then automatically runs only callbacks marked safe for auto-run, currently promise and prediction due callbacks.
+
 Inside Telegram:
 
 ```text
@@ -152,6 +159,13 @@ M27 intentionally keeps these Akasha compatibility surfaces:
 - secret redaction before event append
 
 It keeps embeddings and reflection disabled by default. Those are useful later, but the default dogfood shell stays local, inspectable, and inexpensive.
+
+`akasha.policyProfile` controls how strongly the runtime policy surface intervenes:
+
+- `observe` records decisions without applying the default blocking rules.
+- `dogfood` is the default local safety profile.
+- `strict` uses the same default rules with strict temporal-protocol settings when configured.
+- `autonomous` adds callback auto-run safety checks for deployments that allow controlled automation.
 
 ## Inspecting Time
 
@@ -215,6 +229,8 @@ When handling `<akasha_pending_callbacks>`, close the loop through a syscall rat
 When the assistant expresses future responsibility without a syscall, Akasha records `time_syscall.missing` in soft audit mode and parents the heuristic fallback commitment/prediction to that audit event. When an assistant response uses a syscall tool, Akasha records a satisfied `time_syscall.audit`.
 
 Set `akasha.temporalProtocol.syscallAuditMode` to `"strict"` to disable heuristic fallback commitment creation. Strict mode keeps the missing-syscall audit open until a later assistant response uses an explicit Akasha syscall, at which point Akasha records `time_syscall.repaired`.
+
+In strict mode, unresolved missing-syscall audits are also injected into the next model context as `<akasha_time_syscall_repair_required>` and recorded as `time_syscall.repair_prompt.injected`. This turns the protocol gap into an auditable repair prompt rather than a passive warning.
 
 ## Long-term Memory
 

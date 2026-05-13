@@ -132,8 +132,10 @@ Use `akasha init --global` to write the preset to global settings instead of the
 | `akasha.maintenance.runOnSessionStart` | boolean | `false` | Run one maintenance pass immediately after the session starts |
 | `akasha.privacy.redactSecrets` | boolean | `true` | Redact common secrets before appending Akasha events |
 | `akasha.temporalProtocol.syscallAuditMode` | string | `"soft"` | `"soft"` records missing syscalls plus heuristic fallback events; `"strict"` records missing syscalls without fallback events until an explicit syscall repairs the protocol gap |
+| `akasha.policyProfile` | string | `"dogfood"` | Runtime policy profile: `"observe"`, `"dogfood"`, `"strict"`, or `"autonomous"` |
 | `akasha.gateway.enabled` | boolean | `false` | Enable the long-running IM gateway runtime |
 | `akasha.gateway.defaultCwd` | string | current cwd | Default workspace used by gateway chats |
+| `akasha.gateway.callbackMode` | string | `"notify_only"` | Gateway callback delivery: `"notify_only"`, `"inbox_only"`, `"ask_before_run"`, or `"auto_run_safe"` |
 | `akasha.gateway.platforms.telegram.enabled` | boolean | `false` | Enable the Telegram adapter |
 | `akasha.gateway.platforms.telegram.mode` | string | `"polling"` | Telegram mode: `"polling"` or `"webhook"` |
 | `akasha.gateway.platforms.telegram.botTokenEnv` | string | `"TELEGRAM_BOT_TOKEN"` | Environment variable that stores the Telegram bot token |
@@ -142,7 +144,7 @@ Use `akasha init --global` to write the preset to global settings instead of the
 
 Useful inspection commands include `/akasha timeline [n]` for the current session, `/akasha project-timeline [n]` for all sessions in the current project `cwd`, `/akasha user-timeline` for user-level memory, `/akasha action-gate` for the pre-action control brief, `/akasha queue` for due callbacks, `/akasha callback-complete <callbackId> [evidenceEventId]` and `/akasha callback-cancel <callbackId> [reason]` for callback lifecycle, `/akasha maintain [session|project|all]` for detached maintenance, `/akasha memory-review` plus `/akasha memory-pin|memory-unpin|memory-suppress <eventId>` for memory governance, `/akasha redact <eventId> <field> [reason]` for append-only redaction, `/akasha project-state project` for cross-session project state, `/akasha scheduler` for a manual Karma/scheduler pass, and `/akasha doctor` for schema, redaction, and retention diagnostics.
 
-Callback resume closure is syscall-driven. `akasha_resolve_commitment` and `akasha_check_prediction` both accept optional `callbackId` and `inboxItemId`; when supplied, Akasha automatically appends `time.callback.completed` and `callback.inbox.consumed`.
+Callback resume closure is syscall-driven. `akasha_resolve_commitment` and `akasha_check_prediction` both accept optional `callbackId` and `inboxItemId`; when supplied, Akasha automatically appends `time.callback.completed` and `callback.inbox.consumed`. In strict syscall audit mode, Akasha injects unresolved missing-syscall audits into the next model context as an auditable repair prompt.
 
 ```json
 {
@@ -166,9 +168,11 @@ Callback resume closure is syscall-driven. `akasha_resolve_commitment` and `akas
     "temporalProtocol": {
       "syscallAuditMode": "soft"
     },
+    "policyProfile": "dogfood",
     "gateway": {
       "enabled": true,
       "defaultCwd": "/path/to/workspace",
+      "callbackMode": "notify_only",
       "platforms": {
         "telegram": {
           "enabled": true,

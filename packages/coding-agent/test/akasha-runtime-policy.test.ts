@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { JsonlAkashaStore } from "../src/core/akasha/jsonl-store.js";
-import { evaluateAkashaRuntimePolicy } from "../src/core/akasha/policy-kernel.js";
+import { evaluateAkashaRuntimePolicy, rulesForAkashaPolicyProfile } from "../src/core/akasha/policy-kernel.js";
 import { createAkashaTemporalKernel } from "../src/core/akasha/temporal-kernel.js";
 
 describe("Akasha runtime policy surface", () => {
@@ -54,6 +54,29 @@ describe("Akasha runtime policy surface", () => {
 			action: "require_confirmation",
 			ruleId: "require_confirmation_for_export",
 		});
+	});
+
+	it("maps policy profiles to observe, dogfood, and autonomous rule sets", () => {
+		const observed = evaluateAkashaRuntimePolicy({
+			type: "export",
+			subject: "akasha.export",
+			rules: rulesForAkashaPolicyProfile("observe"),
+		});
+		const dogfood = evaluateAkashaRuntimePolicy({
+			type: "export",
+			subject: "akasha.export",
+			rules: rulesForAkashaPolicyProfile("dogfood"),
+		});
+		const autonomous = evaluateAkashaRuntimePolicy({
+			type: "callback_dispatch",
+			subject: "retention_due",
+			payload: { dispatchMode: "auto_run_safe", safeForAutoRun: false },
+			rules: rulesForAkashaPolicyProfile("autonomous"),
+		});
+
+		expect(observed.action).toBe("allow");
+		expect(dogfood).toMatchObject({ action: "require_confirmation", ruleId: "require_confirmation_for_export" });
+		expect(autonomous).toMatchObject({ action: "block", ruleId: "block_auto_run_unsafe_callback" });
 	});
 
 	it("appends policy events for context injection before action gate injection", () => {

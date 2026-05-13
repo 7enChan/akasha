@@ -1,6 +1,7 @@
 import type { AkashaEvent } from "./types.js";
 
 export type AkashaPolicyDecisionAction = "allow" | "block" | "require_confirmation" | "require_validation" | "defer";
+export type AkashaPolicyProfile = "observe" | "dogfood" | "strict" | "autonomous";
 
 export type AkashaRuntimeActionType =
 	| "tool_call"
@@ -95,6 +96,21 @@ export const DEFAULT_AKASHA_RUNTIME_POLICY_RULES: AkashaPolicyRule[] = [
 		severity: "warning",
 	},
 ];
+
+export const AUTONOMOUS_AKASHA_RUNTIME_POLICY_RULES: AkashaPolicyRule[] = [
+	...DEFAULT_AKASHA_RUNTIME_POLICY_RULES,
+	{
+		id: "block_auto_run_unsafe_callback",
+		description: "Gateway auto-run may only execute callbacks classified as safe.",
+		severity: "critical",
+	},
+];
+
+export function rulesForAkashaPolicyProfile(profile: AkashaPolicyProfile): AkashaPolicyRule[] {
+	if (profile === "observe") return [];
+	if (profile === "autonomous") return AUTONOMOUS_AKASHA_RUNTIME_POLICY_RULES;
+	return DEFAULT_AKASHA_RUNTIME_POLICY_RULES;
+}
 
 export function evaluateAkashaPolicy(input: AkashaPolicyEvaluationInput): AkashaPolicyDecision {
 	for (const rule of input.rules ?? []) {
@@ -245,6 +261,17 @@ function evaluateRule(input: AkashaPolicyEvaluationInput, rule: AkashaPolicyRule
 		const sourceEventIds = stringArrayPayload(input, "sourceEventIds");
 		if (input.payload?.strict === true && sourceEventIds.length === 0) {
 			return decision("block", rule, "Akasha strict protocol requires time syscalls to include sourceEventIds.", []);
+		}
+	}
+
+	if (rule.id === "block_auto_run_unsafe_callback" && input.actionType === "callback_dispatch") {
+		if (input.payload?.dispatchMode === "auto_run_safe" && input.payload.safeForAutoRun !== true) {
+			return decision(
+				"block",
+				rule,
+				"Akasha blocked callback auto-run because this callback is not marked safe.",
+				[],
+			);
 		}
 	}
 

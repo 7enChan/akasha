@@ -1,13 +1,22 @@
 import { existsSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { buildRunnableCallbacks, runAkashaCallbackRunner } from "../core/akasha/callback-runner.js";
+import {
+	type AkashaCallbackDispatchMode,
+	buildRunnableCallbacks,
+	runAkashaCallbackRunner,
+} from "../core/akasha/callback-runner.js";
 import { buildAkashaDaemonQueue } from "../core/akasha/daemon-queue.js";
 import { JsonlAkashaStore } from "../core/akasha/jsonl-store.js";
+import { rulesForAkashaPolicyProfile } from "../core/akasha/policy-kernel.js";
 import { buildAkashaSessionIndex } from "../core/akasha/session-index.js";
 import type { AkashaEvent } from "../core/akasha/types.js";
 import { AuthStorage } from "../core/auth-storage.js";
 import { ModelRegistry } from "../core/model-registry.js";
-import { type ResolvedAkashaSettings, SettingsManager } from "../core/settings-manager.js";
+import {
+	type AkashaGatewayCallbackMode,
+	type ResolvedAkashaSettings,
+	SettingsManager,
+} from "../core/settings-manager.js";
 import { DefaultAkashaGatewayAgentRunner } from "./agent-runner.js";
 import { type ResolveAkashaGatewayConfigOptions, resolveAkashaGatewayConfig } from "./config.js";
 import { AkashaGatewayEventWriter } from "./events.js";
@@ -224,6 +233,7 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 		return [
 			"Akasha gateway status",
 			`- mode: ${this.options.config.telegram.mode}`,
+			`- callback mode: ${this.options.config.callbackMode}`,
 			`- default cwd: ${this.options.config.defaultCwd}`,
 			`- chats: ${chats}`,
 			`- busy chats: ${this.queue.pendingKeys().length}`,
@@ -414,28 +424,121 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 			const store = new JsonlAkashaStore(session.eventLogPath);
 			const result = runAkashaCallbackRunner(store, {
 				reflection: this.options.settings.reflection,
-				dispatchMode: "record_only",
+				dispatchMode: callbackDispatchModeForGateway(this.options.config.callbackMode),
 				agentDir: this.options.config.agentDir,
+				rules: rulesForAkashaPolicyProfile(this.options.settings.policyProfile),
 			});
 			for (const event of result.dispatched) {
 				const summary = typeof event.payload.summary === "string" ? event.payload.summary : event.eventId;
-				await this.adapter.sendMessage({ chatId: String(homeChatId), text: `Akasha callback due:\n${summary}` });
+				const safeForAutoRun = event.payload.safeForAutoRun === true;
+				const autoRun = this.options.config.callbackMode === "auto_run_safe" && safeForAutoRun;
+				await this.adapter.sendMessage({
+					chatId: String(homeChatId),
+					text: formatGatewayCallbackDeliveryText(this.options.config.callbackMode, summary, safeForAutoRun),
+				});
+				const autoRunResult = autoRun ? await this.runGatewayCallbackAgent(homeChatId, event, summary) : undefined;
 				this.events.appendGateway("telegram", {
 					kind: "gateway.callback.delivered",
 					subjectId: "akasha.gateway",
 					objectId: String(homeChatId),
 					sourceKey: `gateway-callback-delivered:${event.eventId}`,
-					parentEventIds: [event.eventId],
+					parentEventIds: autoRunResult?.eventIds?.length
+						? [event.eventId, ...autoRunResult.eventIds]
+						: [event.eventId],
 					payload: {
 						chatId: String(homeChatId),
 						dispatchEventId: event.eventId,
 						callbackId: event.payload.callbackId,
 						summary,
+						callbackMode: this.options.config.callbackMode,
+						safeForAutoRun,
+						autoRunAttempted: autoRun,
+						autoRunSessionId: autoRunResult?.sessionId,
+						autoRunTextLength: autoRunResult?.textLength,
 					},
 					ttlPolicy: "long_term",
 					importance: 0.8,
 				});
 			}
+		}
+	}
+
+	private async runGatewayCallbackAgent(
+		homeChatId: number,
+		dispatchEvent: AkashaEvent,
+		summary: string,
+	): Promise<{ sessionId: string; textLength: number; eventIds: string[] } | undefined> {
+		const chatId = String(homeChatId);
+		const chat = this.sessionStore.getChat("telegram", chatId, this.options.config.defaultCwd);
+		const messageId = `callback:${dispatchEvent.eventId}`;
+		const prompt = formatGatewayCallbackAgentPrompt(dispatchEvent, summary);
+		try {
+			const stopTypingIndicator = this.startTypingIndicator(chatId);
+			try {
+				const result = await this.agentRunner.run({
+					chat,
+					message: {
+						platform: "telegram",
+						chatId,
+						messageId,
+						userId: homeChatId,
+						text: prompt,
+						receivedTime: new Date().toISOString(),
+						raw: {
+							source: "akasha.gateway.callback",
+							dispatchEventId: dispatchEvent.eventId,
+							callbackId: dispatchEvent.payload.callbackId,
+						},
+					},
+				});
+				await this.deliverAgentReply(chat, result.text);
+				const replyEvent = this.events.appendForChat(chat, {
+					kind: "gateway.reply.sent",
+					subjectId: "akasha.gateway",
+					objectId: result.sessionId,
+					sourceKey: `gateway-callback-auto-run-reply:${dispatchEvent.eventId}:${result.sessionId}`,
+					parentEventIds: [dispatchEvent.eventId],
+					payload: {
+						messageId,
+						sessionId: result.sessionId,
+						sessionFile: result.sessionFile,
+						textLength: result.text.length,
+						callbackId: dispatchEvent.payload.callbackId,
+						dispatchEventId: dispatchEvent.eventId,
+					},
+					ttlPolicy: "long_term",
+					importance: 0.75,
+				});
+				return {
+					sessionId: result.sessionId,
+					textLength: result.text.length,
+					eventIds: [replyEvent.eventId],
+				};
+			} finally {
+				stopTypingIndicator();
+			}
+		} catch (error) {
+			const failedEvent = this.events.appendForChat(chat, {
+				kind: "gateway.delivery.failed",
+				subjectId: "akasha.gateway",
+				objectId: messageId,
+				sourceKey: `gateway-callback-auto-run-failed:${dispatchEvent.eventId}`,
+				parentEventIds: [dispatchEvent.eventId],
+				payload: {
+					reason: errorMessage(error),
+					messageId,
+					callbackId: dispatchEvent.payload.callbackId,
+					dispatchEventId: dispatchEvent.eventId,
+				},
+				ttlPolicy: "long_term",
+				importance: 0.9,
+			});
+			await this.adapter.sendMessage({ chatId, text: `Akasha callback auto-run failed: ${errorMessage(error)}` });
+			return {
+				sessionId: "",
+				textLength: 0,
+				eventIds: [failedEvent.eventId],
+			};
 		}
 	}
 
@@ -572,6 +675,55 @@ function formatTimelineEvent(event: AkashaEvent): string {
 	const target = event.objectId ?? event.subjectId ?? event.toolCallId ?? event.eventId;
 	const summary = summarizeEventPayload(event.payload);
 	return `- ${time} ${event.kind}${target ? ` ${target}` : ""}${summary ? `: ${summary}` : ""}`;
+}
+
+function callbackDispatchModeForGateway(mode: AkashaGatewayCallbackMode): AkashaCallbackDispatchMode {
+	return mode === "notify_only" ? "record_only" : "agent_prompt_file";
+}
+
+function formatGatewayCallbackDeliveryText(
+	mode: AkashaGatewayCallbackMode,
+	summary: string,
+	safeForAutoRun: boolean,
+): string {
+	if (mode === "inbox_only") {
+		return `Akasha callback queued in inbox:\n${summary}`;
+	}
+	if (mode === "ask_before_run") {
+		return [
+			"Akasha callback needs review:",
+			summary,
+			"",
+			"It has been queued in Akasha inbox. Reply with instructions when you are ready to act.",
+		].join("\n");
+	}
+	if (mode === "auto_run_safe") {
+		return safeForAutoRun
+			? `Akasha callback is safe for auto-run:\n${summary}`
+			: `Akasha callback queued for manual review:\n${summary}`;
+	}
+	return `Akasha callback due:\n${summary}`;
+}
+
+function formatGatewayCallbackAgentPrompt(dispatchEvent: AkashaEvent, summary: string): string {
+	const callbackId = typeof dispatchEvent.payload.callbackId === "string" ? dispatchEvent.payload.callbackId : "";
+	const dispatchDetails = dispatchEvent.payload.dispatchDetails;
+	const inboxItemId =
+		typeof dispatchDetails === "object" &&
+		dispatchDetails !== null &&
+		"inboxItemId" in dispatchDetails &&
+		typeof dispatchDetails.inboxItemId === "string"
+			? dispatchDetails.inboxItemId
+			: undefined;
+	return [
+		"Akasha gateway is auto-running a due temporal callback.",
+		`summary: ${summary}`,
+		callbackId ? `callbackId: ${callbackId}` : undefined,
+		inboxItemId ? `inboxItemId: ${inboxItemId}` : undefined,
+		"Review the causal chain, act only if still relevant, and close the loop with akasha_resolve_commitment or akasha_check_prediction using the callbackId or inboxItemId.",
+	]
+		.filter((line): line is string => Boolean(line))
+		.join("\n");
 }
 
 function summarizeEventPayload(payload: Record<string, unknown>): string {

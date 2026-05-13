@@ -230,6 +230,7 @@ export {
 } from "./core/session-manager.js";
 export {
 	type AkashaActionGateSettings,
+	type AkashaGatewayCallbackMode,
 	type AkashaGatewaySettings,
 	type AkashaGatewayTelegramSettings,
 	type AkashaMaintenanceSettings,

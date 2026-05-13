@@ -14,6 +14,7 @@ import { buildRunnableCallbacks, runAkashaCallbackRunner } from "./core/akasha/c
 import { resolveAkashaEventLogPath } from "./core/akasha/collector-extension.js";
 import { buildAkashaDaemonQueue, runAkashaDaemonQueuePass } from "./core/akasha/daemon-queue.js";
 import { JsonlAkashaStore } from "./core/akasha/jsonl-store.js";
+import { rulesForAkashaPolicyProfile } from "./core/akasha/policy-kernel.js";
 import {
 	buildCachedAkashaTemporalStateSnapshot,
 	clearAkashaProjectionCache,
@@ -108,6 +109,7 @@ export async function handleAkashaEntrypointCommand(args: string[], cwd: string)
 	console.log(`- tool gate: ${settings.actionGate.enforceToolGate}`);
 	console.log(`- maintenance: ${settings.maintenance.enabled}`);
 	console.log(`- heartbeat: ${settings.maintenance.heartbeatEnabled}`);
+	console.log(`- policy profile: ${settings.policyProfile}`);
 	console.log(`- event log dir: ${settings.eventLogDir ?? join(agentDir, "akasha", "events")}`);
 	console.log(`- project settings: ${projectPath}${existsSync(projectPath) ? "" : " (missing)"}`);
 	console.log(`- global settings: ${globalPath}${existsSync(globalPath) ? "" : " (missing)"}`);
@@ -117,7 +119,7 @@ export async function handleAkashaEntrypointCommand(args: string[], cwd: string)
 function printAkashaEntrypointHelp(command?: string): void {
 	const usage =
 		command === "daemon"
-			? "akasha daemon status|tick|run [--scope current|project|all] [--dispatch record_only|terminal_notification|agent_prompt_file]"
+			? "akasha daemon status|tick|run [--scope current|project|all] [--dispatch record_only|terminal_notification|agent_prompt_file|auto_run_safe]"
 			: command === "cache"
 				? "akasha cache status|clear|rebuild [--scope current|project|all]"
 				: command === "inbox"
@@ -187,6 +189,7 @@ async function handleAkashaGatewayCommand(
 		console.log(`- enabled: ${status.config.enabled}`);
 		console.log(`- telegram: ${status.config.telegram.enabled}`);
 		console.log(`- mode: ${status.config.telegram.mode}`);
+		console.log(`- callback mode: ${status.config.callbackMode}`);
 		console.log(`- default cwd: ${status.config.defaultCwd}`);
 		console.log(`- allowed users: ${status.config.telegram.allowedUsers.size}`);
 		console.log(`- home chat: ${status.config.telegram.homeChatId ?? "(missing)"}`);
@@ -323,6 +326,7 @@ async function handleAkashaDaemonCommand(
 				reflection: settings.reflection,
 				dispatchMode,
 				agentDir,
+				rules: rulesForAkashaPolicyProfile(settings.policyProfile),
 			});
 			claimed += result.claimed.length;
 			dispatched += result.dispatched.length;
@@ -338,7 +342,7 @@ async function handleAkashaDaemonCommand(
 	}
 
 	console.log(
-		"Usage: akasha daemon status|tick|run [--scope current|project|all] [--dispatch record_only|terminal_notification|agent_prompt_file]",
+		"Usage: akasha daemon status|tick|run [--scope current|project|all] [--dispatch record_only|terminal_notification|agent_prompt_file|auto_run_safe]",
 	);
 }
 
@@ -542,7 +546,14 @@ function storeForInboxItem(
 function parseDispatchMode(args: string[]): AkashaCallbackDispatchMode {
 	const index = args.indexOf("--dispatch");
 	const value = index >= 0 ? args[index + 1] : undefined;
-	if (value === "record_only" || value === "terminal_notification" || value === "agent_prompt_file") return value;
+	if (
+		value === "record_only" ||
+		value === "terminal_notification" ||
+		value === "agent_prompt_file" ||
+		value === "auto_run_safe"
+	) {
+		return value;
+	}
 	return "agent_prompt_file";
 }
 

@@ -11,7 +11,12 @@ import {
 } from "./policy-kernel.js";
 import type { AkashaEvent, AkashaStore } from "./types.js";
 
-export type AkashaCallbackDispatchMode = "record_only" | "terminal_notification" | "agent_prompt_file" | "agent";
+export type AkashaCallbackDispatchMode =
+	| "record_only"
+	| "terminal_notification"
+	| "agent_prompt_file"
+	| "agent"
+	| "auto_run_safe";
 
 export interface AkashaCallbackDispatchContext {
 	store: AkashaStore;
@@ -126,7 +131,7 @@ export function runAkashaCallbackRunner(
 }
 
 export function createAkashaCallbackDispatcher(mode: AkashaCallbackDispatchMode): AkashaCallbackDispatcher {
-	const normalizedMode = mode === "agent" ? "agent_prompt_file" : mode;
+	const normalizedMode = mode === "agent" || mode === "auto_run_safe" ? "agent_prompt_file" : mode;
 	if (normalizedMode === "terminal_notification") {
 		return {
 			name: "terminal_notification",
@@ -139,12 +144,12 @@ export function createAkashaCallbackDispatcher(mode: AkashaCallbackDispatchMode)
 	}
 	if (normalizedMode === "agent_prompt_file") {
 		return {
-			name: "agent_prompt_file",
+			name: mode === "auto_run_safe" ? "auto_run_safe" : "agent_prompt_file",
 			dispatch: ({ store, callback, claim, now, agentDir }) => {
 				if (!agentDir) {
 					return {
 						status: "failed",
-						mode: "agent_prompt_file",
+						mode: mode === "auto_run_safe" ? "auto_run_safe" : "agent_prompt_file",
 						message: "agent_prompt_file dispatch requires agentDir",
 					};
 				}
@@ -155,7 +160,7 @@ export function createAkashaCallbackDispatcher(mode: AkashaCallbackDispatchMode)
 				});
 				return {
 					status: "dispatched",
-					mode: "agent_prompt_file",
+					mode: mode === "auto_run_safe" ? "auto_run_safe" : "agent_prompt_file",
 					message: `Queued callback prompt: ${prompt.id}`,
 					outputEventIds: [inboxEvent.eventId],
 					details: {
@@ -255,6 +260,7 @@ function dispatchAkashaCallback(
 			claimEventId: claim.eventId,
 			dueEventId: callback.dueEvent.eventId,
 			dispatchMode: dispatchResult.mode,
+			safeForAutoRun: isAkashaCallbackSafeForAutoRun(callback),
 			dispatcherMessage: dispatchResult.message,
 			outputEventIds: dispatchResult.outputEventIds,
 			dispatchDetails: dispatchResult.details,
@@ -292,6 +298,7 @@ function failAkashaCallbackDispatch(
 			dueEventId: callback.dueEvent.eventId,
 			reason,
 			dispatchMode: dispatchResult?.mode,
+			safeForAutoRun: isAkashaCallbackSafeForAutoRun(callback),
 			dispatcherMessage: dispatchResult?.message,
 			dispatchDetails: dispatchResult?.details,
 			kind: callback.kind,
@@ -318,6 +325,7 @@ function appendCallbackDispatchPolicy(
 		...governed.redactedSourceEventIds,
 	]);
 	const targetSuppressed = callback.targetEventId ? suppressedTargetIds.has(callback.targetEventId) : false;
+	const safeForAutoRun = isAkashaCallbackSafeForAutoRun(callback);
 	const evidenceEvents = targetSuppressed
 		? timeline.filter(
 				(event) => event.eventId === callback.targetEventId || event.objectId === callback.targetEventId,
@@ -334,6 +342,7 @@ function appendCallbackDispatchPolicy(
 			targetEventId: callback.targetEventId,
 			dispatchMode: options.dispatchMode ?? "record_only",
 			targetSuppressed,
+			safeForAutoRun,
 		},
 		evidenceEvents,
 		rules: options.rules,
@@ -361,6 +370,7 @@ function appendCallbackDispatchPolicy(
 					targetEventId: callback.targetEventId,
 					dispatchMode: options.dispatchMode ?? "record_only",
 					targetSuppressed,
+					safeForAutoRun,
 				},
 				evidenceEvents,
 				rules: options.rules,
@@ -372,6 +382,10 @@ function appendCallbackDispatchPolicy(
 		ttlPolicy: "long_term",
 	});
 	return { decision, event };
+}
+
+export function isAkashaCallbackSafeForAutoRun(callback: Pick<AkashaRunnableCallback, "kind">): boolean {
+	return callback.kind === "promise_due" || callback.kind === "prediction_due";
 }
 
 function callbackIdOf(event: AkashaEvent): string | undefined {

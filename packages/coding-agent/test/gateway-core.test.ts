@@ -19,6 +19,7 @@ describe("Akasha gateway core", () => {
 				gateway: {
 					enabled: true,
 					defaultCwd: "/tmp/project",
+					callbackMode: "ask_before_run",
 					platforms: { telegram: { enabled: true, mode: "polling" } },
 				},
 			},
@@ -46,6 +47,7 @@ describe("Akasha gateway core", () => {
 		expect(missing.missing).toContain("TELEGRAM_ALLOWED_USERS");
 		expect(ready.ok).toBe(true);
 		expect(ready.config.defaultCwd).toBe("/tmp/project");
+		expect(ready.config.callbackMode).toBe("ask_before_run");
 		expect([...ready.config.telegram.allowedUsers]).toEqual([123, 456]);
 		expect(ready.config.telegram.homeChatId).toBe(123);
 	});

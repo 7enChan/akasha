@@ -36,8 +36,10 @@ export function createAkashaDogfoodPreset(): AkashaSettings {
 		temporalProtocol: {
 			syscallAuditMode: "soft",
 		},
+		policyProfile: "dogfood",
 		gateway: {
 			enabled: false,
+			callbackMode: "notify_only",
 			platforms: {
 				telegram: {
 					enabled: false,

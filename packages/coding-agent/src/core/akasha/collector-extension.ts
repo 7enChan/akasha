@@ -39,6 +39,7 @@ import {
 	truncateText,
 } from "./mapper.js";
 import { deriveOpenLoopEvents } from "./open-loops.js";
+import { rulesForAkashaPolicyProfile } from "./policy-kernel.js";
 import { createAkashaTemporalKernel } from "./temporal-kernel.js";
 import {
 	auditAkashaTimeSyscalls,
@@ -104,6 +105,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 		const maintenanceSettings = resolveMaintenanceSettings(options.settings.maintenance);
 		const privacySettings = options.settings.privacy ?? { redactSecrets: true };
 		const embeddingProvider = createAkashaEmbeddingProvider(embeddingSettings);
+		const policyRules = rulesForAkashaPolicyProfile(options.settings.policyProfile);
 		let sessionId: string | undefined;
 		let streamId = "unknown";
 		let agentRunId = `boot-${uuidv7()}`;
@@ -119,6 +121,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 		const toolAssistantParentIds = new Map<string, string>();
 		const sessionEntryEventIds = new Map<string, string>();
 		const injectedInboxItemIds = new Set<string>();
+		const injectedStrictRepairKeys = new Set<string>();
 
 		const nowIso = () => new Date().toISOString();
 		const nextSourceKey = (scope: string) =>
@@ -135,6 +138,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 				agentDir: options.agentDir,
 				eventLogDir: options.settings.eventLogDir,
 				reflection: reflectionSettings,
+				policyRules,
 			});
 		};
 
@@ -176,6 +180,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			toolAssistantParentIds.clear();
 			sessionEntryEventIds.clear();
 			injectedInboxItemIds.clear();
+			injectedStrictRepairKeys.clear();
 		};
 
 		const append = (draft: AkashaEventDraft): AkashaEvent | undefined => {
@@ -725,15 +730,17 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 				});
 			}
 
-			const strictRepairContext = buildStrictSyscallRepairContext();
+			const strictRepairContext = injectStrictSyscallRepairContext();
 			if (strictRepairContext) {
 				messages.push({
 					role: "custom",
 					customType: "akasha.syscall_repair",
-					content: strictRepairContext,
+					content: strictRepairContext.text,
 					display: false,
 					details: {
 						source: BUILT_IN_PATH,
+						eventIds: strictRepairContext.eventIds,
+						missingEventIds: strictRepairContext.missingEventIds,
 					},
 					timestamp: Date.now(),
 				});
@@ -828,21 +835,69 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			};
 		}
 
-		function buildStrictSyscallRepairContext(): string | undefined {
-			if (!store || options.settings.temporalProtocol.syscallAuditMode !== "strict") return undefined;
-			const missing = findUnrepairedTimeSyscallMissingAudits(store.buildTimeline({ limit: 200 })).slice(-3);
+		function injectStrictSyscallRepairContext():
+			| { text: string; eventIds: string[]; missingEventIds: string[] }
+			| undefined {
+			if (!store || !sessionId || options.settings.temporalProtocol.syscallAuditMode !== "strict") return undefined;
+			const missing = findUnrepairedTimeSyscallMissingAudits(store.buildTimeline({ limit: 200 }))
+				.filter((event) => !injectedStrictRepairKeys.has(strictRepairKey(event.eventId)))
+				.slice(-3);
 			if (missing.length === 0) return undefined;
-			return [
+			const missingEventIds = missing.map((event) => event.eventId);
+			const assistantEventIds = missing
+				.map((event) =>
+					typeof event.payload.assistantEventId === "string"
+						? event.payload.assistantEventId
+						: typeof event.objectId === "string"
+							? event.objectId
+							: undefined,
+				)
+				.filter((eventId): eventId is string => Boolean(eventId));
+			const injected = append({
+				kind: "time_syscall.repair_prompt.injected",
+				sessionId,
+				streamId,
+				eventTime: nowIso(),
+				actor: "system",
+				subjectId: "akasha.time_syscall_audit",
+				objectId: "strict_repair",
+				sourceKey: nextSourceKey(`time-syscall-repair:${missingEventIds.join(",")}`),
+				parentEventIds: parents(currentTurnEventId, latestLeafEventId, ...missingEventIds),
+				correlationId: currentTurnEventId,
+				payload: {
+					missingEventIds,
+					assistantEventIds,
+					repairRequired: true,
+					instruction:
+						"Repair missing future-responsibility syscalls before continuing normal work. If still valid, call akasha_create_commitment or akasha_create_prediction with sourceEventIds.",
+				},
+				importance: 0.9,
+				ttlPolicy: "long_term",
+			});
+			for (const event of missing) injectedStrictRepairKeys.add(strictRepairKey(event.eventId));
+			const text = [
 				"<akasha_time_syscall_repair_required>",
+				"Strict temporal protocol is active. Do not continue normal work or restate unresolved future responsibility before repairing it.",
 				...missing.map((event, index) =>
 					[
 						`${index + 1}. Missing syscall audit: ${event.eventId}`,
 						`   assistantEventId: ${String(event.payload.assistantEventId ?? event.objectId ?? "")}`,
-						"   obligation: if the future responsibility is still valid, call akasha_create_commitment or akasha_create_prediction before restating it.",
+						"   obligation: if still valid, call akasha_create_commitment or akasha_create_prediction now.",
+						"   sourceEventIds: include this missing audit id or its assistantEventId.",
+						"   if obsolete: state why it is obsolete and do not recreate it.",
 					].join("\n"),
 				),
 				"</akasha_time_syscall_repair_required>",
 			].join("\n");
+			return {
+				text,
+				eventIds: injected ? [injected.eventId] : [],
+				missingEventIds,
+			};
+		}
+
+		function strictRepairKey(eventId: string): string {
+			return `${eventId}:${currentTurnEventId ?? "no-turn"}`;
 		}
 
 		function mapModelSelect(event: ModelSelectEvent): AkashaEventDraft {

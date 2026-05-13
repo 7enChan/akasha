@@ -1,4 +1,5 @@
 import type { ImageContent } from "@earendil-works/akasha-ai";
+import type { AkashaGatewayCallbackMode } from "../core/settings-manager.js";
 
 export type AkashaGatewayPlatform = "telegram";
 export type AkashaGatewayMode = "polling" | "webhook";
@@ -18,6 +19,7 @@ export interface AkashaGatewayConfig {
 	enabled: boolean;
 	agentDir: string;
 	defaultCwd: string;
+	callbackMode: AkashaGatewayCallbackMode;
 	telegram: AkashaGatewayTelegramConfig;
 }
 

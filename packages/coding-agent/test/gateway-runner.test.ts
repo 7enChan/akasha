@@ -2,7 +2,8 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ResolvedAkashaSettings } from "../src/core/settings-manager.js";
+import { JsonlAkashaStore } from "../src/core/akasha/jsonl-store.js";
+import type { AkashaGatewayCallbackMode, ResolvedAkashaSettings } from "../src/core/settings-manager.js";
 import { AkashaGatewayLogger } from "../src/gateway/logger.js";
 import { AkashaGatewayRunner } from "../src/gateway/runner.js";
 import type {
@@ -150,25 +151,71 @@ describe("AkashaGatewayRunner", () => {
 		expect(readGatewayEvents()).toContain("gateway.command.executed");
 	});
 
+	it("keeps notify_only callback delivery as a notification-only default", async () => {
+		appendDueCallback("callback-notify", "Notify only callback", "promise_due");
+		const adapter = new FakeAdapter();
+		const agent = new FakeAgentRunner("unused");
+		const runner = createRunner({ adapter, agentRunner: agent });
+
+		await runner.start();
+
+		expect(adapter.sent.map((message) => message.text).join("\n")).toContain("Akasha callback due");
+		expect(agent.runs).toHaveLength(0);
+		expect(readInbox()).toBe("");
+		expect(readGatewayEvents()).toContain('"callbackMode":"notify_only"');
+	});
+
+	it("queues due callbacks into the Akasha inbox when callback mode is inbox_only", async () => {
+		appendDueCallback("callback-1", "Review inbox callback", "promise_due");
+		const adapter = new FakeAdapter();
+		const agent = new FakeAgentRunner("unused");
+		const runner = createRunner({ adapter, agentRunner: agent, callbackMode: "inbox_only" });
+
+		await runner.start();
+
+		expect(adapter.sent.map((message) => message.text).join("\n")).toContain("queued in inbox");
+		expect(agent.runs).toHaveLength(0);
+		expect(readInbox()).toContain("Review inbox callback");
+		expect(readGatewayEvents()).toContain("gateway.callback.delivered");
+		expect(readGatewayEvents()).toContain('"callbackMode":"inbox_only"');
+	});
+
+	it("auto-runs safe due callbacks and records the gateway reply", async () => {
+		appendDueCallback("callback-2", "Check a due prediction", "prediction_due");
+		const adapter = new FakeAdapter();
+		const agent = new FakeAgentRunner("Auto-run reply");
+		const runner = createRunner({ adapter, agentRunner: agent, callbackMode: "auto_run_safe" });
+
+		await runner.start();
+
+		expect(adapter.sent.map((message) => message.text).join("\n")).toContain("safe for auto-run");
+		expect(adapter.sent.map((message) => message.text)).toContain("Auto-run reply");
+		expect(agent.runs[0].message.text).toContain("callbackId: callback-2");
+		expect(readGatewayEvents()).toContain('"autoRunAttempted":true');
+		expect(readGatewayEvents()).toContain("gateway.reply.sent");
+	});
+
 	function createRunner(options: {
 		adapter: FakeAdapter;
 		agentRunner?: AkashaGatewayAgentRunner;
 		allowedUsers?: Set<number>;
+		callbackMode?: AkashaGatewayCallbackMode;
 	}): AkashaGatewayRunner {
 		return new AkashaGatewayRunner({
-			config: createConfig(options.allowedUsers ?? new Set([123])),
-			settings: createSettings(),
+			config: createConfig(options.allowedUsers ?? new Set([123]), options.callbackMode ?? "notify_only"),
+			settings: createSettings(options.callbackMode ?? "notify_only"),
 			adapter: options.adapter,
 			agentRunner: options.agentRunner ?? new FakeAgentRunner("ok"),
 			logger: new AkashaGatewayLogger(agentDir, true),
 		});
 	}
 
-	function createConfig(allowedUsers: Set<number>): AkashaGatewayConfig {
+	function createConfig(allowedUsers: Set<number>, callbackMode: AkashaGatewayCallbackMode): AkashaGatewayConfig {
 		return {
 			enabled: true,
 			agentDir,
 			defaultCwd: projectDir,
+			callbackMode,
 			telegram: {
 				enabled: true,
 				mode: "polling",
@@ -180,7 +227,7 @@ describe("AkashaGatewayRunner", () => {
 		};
 	}
 
-	function createSettings(): ResolvedAkashaSettings {
+	function createSettings(callbackMode: AkashaGatewayCallbackMode = "notify_only"): ResolvedAkashaSettings {
 		return {
 			enabled: true,
 			injectTemporalBrief: true,
@@ -218,9 +265,11 @@ describe("AkashaGatewayRunner", () => {
 			},
 			privacy: { redactSecrets: true },
 			temporalProtocol: { syscallAuditMode: "soft" },
+			policyProfile: "dogfood",
 			gateway: {
 				enabled: true,
 				defaultCwd: projectDir,
+				callbackMode,
 				platforms: {
 					telegram: {
 						enabled: true,
@@ -235,6 +284,45 @@ describe("AkashaGatewayRunner", () => {
 				},
 			},
 		};
+	}
+
+	function appendDueCallback(callbackId: string, summary: string, kind: string): void {
+		const store = new JsonlAkashaStore(join(agentDir, "akasha", "events", "session-1.jsonl"));
+		const session = store.append({
+			kind: "session.started",
+			sessionId: "session-1",
+			streamId: "session:session-1",
+			eventTime: "2026-05-12T00:00:00.000Z",
+			actor: "system",
+			sourceKey: "session-started:session-1",
+			payload: { cwd: projectDir },
+			ttlPolicy: "long_term",
+			importance: 0.5,
+		});
+		store.append({
+			kind: "time.callback.due",
+			sessionId: "session-1",
+			streamId: "session:session-1",
+			eventTime: "2026-05-12T00:01:00.000Z",
+			actor: "system",
+			subjectId: "akasha.daemon",
+			objectId: "promise-1",
+			sourceKey: `callback-due:${callbackId}`,
+			parentEventIds: [session.eventId],
+			payload: {
+				callbackId,
+				kind,
+				summary,
+				targetEventId: "promise-1",
+			},
+			ttlPolicy: "long_term",
+			importance: 0.8,
+		});
+	}
+
+	function readInbox(): string {
+		const path = join(agentDir, "akasha", "inbox", "pending-callbacks.jsonl");
+		return existsSync(path) ? readFileSync(path, "utf-8") : "";
 	}
 
 	function readGatewayEvents(): string {

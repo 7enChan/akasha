@@ -269,6 +269,7 @@ describe("Akasha collector extension", () => {
 			gateway: {
 				enabled: false,
 				defaultCwd: undefined,
+				callbackMode: "notify_only",
 				platforms: {
 					telegram: {
 						enabled: false,
@@ -282,6 +283,7 @@ describe("Akasha collector extension", () => {
 					},
 				},
 			},
+			policyProfile: "dogfood",
 		});
 	});
 
@@ -311,6 +313,57 @@ describe("Akasha collector extension", () => {
 		const contents = readFileSync(logPath, "utf-8");
 		expect(contents).toContain('"kind":"message.agent.completed"');
 		expect(contents).not.toContain('"kind":"promise.created"');
+	});
+
+	it("injects a strict syscall repair prompt and records the injection event", async () => {
+		const extension = createFakeExtension();
+		await createAkashaCollectorExtension({
+			agentDir,
+			settings: SettingsManager.inMemory({
+				akasha: {
+					enabled: true,
+					temporalProtocol: {
+						syscallAuditMode: "strict",
+					},
+				},
+			}).getAkashaSettings(),
+		})(extension.akasha);
+		const ctx = fakeContext(cwd, sessionManager);
+
+		await extension.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+		await extension.emit(
+			"message_end",
+			{
+				type: "message_end",
+				message: assistantTextMessage("I will check this again tomorrow."),
+			},
+			ctx,
+		);
+
+		const contextResult = (await extension.emit(
+			"context",
+			{
+				type: "context",
+				messages: [
+					{
+						role: "user",
+						content: [{ type: "text", text: "Continue" }],
+						timestamp: Date.now(),
+					},
+				],
+			},
+			ctx,
+		)) as ContextEventResult | undefined;
+
+		const repair = contextResult?.messages?.find(
+			(message) => message.role === "custom" && message.customType === "akasha.syscall_repair",
+		);
+		expect(customMessageContent(repair)).toContain("Strict temporal protocol is active");
+		expect(customMessageContent(repair)).toContain("akasha_create_commitment");
+		const logPath = resolveAkashaEventLogPath({}, agentDir, sessionManager.getSessionId());
+		const contents = readFileSync(logPath, "utf-8");
+		expect(contents).toContain('"kind":"time_syscall.missing"');
+		expect(contents).toContain('"kind":"time_syscall.repair_prompt.injected"');
 	});
 
 	it("blocks dangerous tool calls when hard tool gate is enabled", async () => {
@@ -349,6 +402,26 @@ describe("Akasha collector extension", () => {
 		expect(contents).toContain('"kind":"tool.blocked"');
 	});
 });
+
+function assistantTextMessage(text: string): AgentMessage {
+	return {
+		role: "assistant",
+		content: [{ type: "text", text }],
+		api: "openai-responses",
+		provider: "openai",
+		model: "gpt-test",
+		usage: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: "stop",
+		timestamp: Date.now(),
+	};
+}
 
 function assistantMessageWithToolCall(toolCallId: string, toolName = "read"): AgentMessage {
 	return {

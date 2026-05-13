@@ -69,6 +69,7 @@ describe("SettingsManager", () => {
 				gateway: {
 					enabled: false,
 					defaultCwd: undefined,
+					callbackMode: "notify_only",
 					platforms: {
 						telegram: {
 							enabled: false,
@@ -82,6 +83,8 @@ describe("SettingsManager", () => {
 						},
 					},
 				},
+				temporalProtocol: { syscallAuditMode: "soft" },
+				policyProfile: "dogfood",
 			});
 		});
 
@@ -125,6 +128,7 @@ describe("SettingsManager", () => {
 					gateway: {
 						enabled: true,
 						defaultCwd: "/tmp/project",
+						callbackMode: "ask_before_run",
 						platforms: {
 							telegram: {
 								enabled: true,
@@ -138,6 +142,10 @@ describe("SettingsManager", () => {
 							},
 						},
 					},
+					temporalProtocol: {
+						syscallAuditMode: "strict",
+					},
+					policyProfile: "autonomous",
 				},
 			});
 
@@ -182,6 +190,7 @@ describe("SettingsManager", () => {
 				gateway: {
 					enabled: true,
 					defaultCwd: "/tmp/project",
+					callbackMode: "ask_before_run",
 					platforms: {
 						telegram: {
 							enabled: true,
@@ -195,6 +204,8 @@ describe("SettingsManager", () => {
 						},
 					},
 				},
+				temporalProtocol: { syscallAuditMode: "strict" },
+				policyProfile: "autonomous",
 			});
 		});
 

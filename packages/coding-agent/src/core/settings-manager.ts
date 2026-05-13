@@ -4,6 +4,7 @@ import { homedir } from "os";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.js";
+import type { AkashaPolicyProfile } from "./akasha/policy-kernel.js";
 import { createAkashaDogfoodPreset, mergeAkashaSettings } from "./akasha/preset.js";
 
 export interface CompactionSettings {
@@ -69,6 +70,7 @@ export interface AkashaSettings {
 	privacy?: AkashaPrivacySettings;
 	gateway?: AkashaGatewaySettings;
 	temporalProtocol?: AkashaTemporalProtocolSettings;
+	policyProfile?: AkashaPolicyProfile; // default: "dogfood"
 }
 
 export interface ResolvedAkashaSettings {
@@ -83,6 +85,7 @@ export interface ResolvedAkashaSettings {
 	privacy: ResolvedAkashaPrivacySettings;
 	gateway: ResolvedAkashaGatewaySettings;
 	temporalProtocol: ResolvedAkashaTemporalProtocolSettings;
+	policyProfile: AkashaPolicyProfile;
 }
 
 export type AkashaEmbeddingProviderName = "off" | "hash" | "openai-compatible";
@@ -177,10 +180,13 @@ export interface AkashaGatewayTelegramSettings {
 export interface AkashaGatewaySettings {
 	enabled?: boolean; // default: false
 	defaultCwd?: string;
+	callbackMode?: AkashaGatewayCallbackMode; // default: "notify_only"
 	platforms?: {
 		telegram?: AkashaGatewayTelegramSettings;
 	};
 }
+
+export type AkashaGatewayCallbackMode = "notify_only" | "inbox_only" | "ask_before_run" | "auto_run_safe";
 
 export interface ResolvedAkashaGatewayTelegramSettings {
 	enabled: boolean;
@@ -196,6 +202,7 @@ export interface ResolvedAkashaGatewayTelegramSettings {
 export interface ResolvedAkashaGatewaySettings {
 	enabled: boolean;
 	defaultCwd?: string;
+	callbackMode: AkashaGatewayCallbackMode;
 	platforms: {
 		telegram: ResolvedAkashaGatewayTelegramSettings;
 	};
@@ -918,6 +925,7 @@ export class SettingsManager {
 			gateway: {
 				enabled: gateway?.enabled ?? false,
 				defaultCwd: gateway?.defaultCwd,
+				callbackMode: resolveAkashaGatewayCallbackMode(gateway?.callbackMode),
 				platforms: {
 					telegram: {
 						enabled: telegramGateway?.enabled ?? false,
@@ -934,6 +942,7 @@ export class SettingsManager {
 			temporalProtocol: {
 				syscallAuditMode: temporalProtocol?.syscallAuditMode === "strict" ? "strict" : "soft",
 			},
+			policyProfile: resolveAkashaPolicyProfile(this.settings.akasha?.policyProfile),
 		};
 	}
 
@@ -957,6 +966,7 @@ export class SettingsManager {
 			gateway: {
 				enabled: true,
 				defaultCwd,
+				callbackMode: "notify_only",
 				platforms: {
 					telegram: {
 						enabled: true,
@@ -1354,4 +1364,14 @@ export class SettingsManager {
 		this.markModified("warnings");
 		this.save();
 	}
+}
+
+function resolveAkashaPolicyProfile(value: AkashaSettings["policyProfile"]): AkashaPolicyProfile {
+	if (value === "observe" || value === "strict" || value === "autonomous") return value;
+	return "dogfood";
+}
+
+function resolveAkashaGatewayCallbackMode(value: AkashaGatewaySettings["callbackMode"]): AkashaGatewayCallbackMode {
+	if (value === "inbox_only" || value === "ask_before_run" || value === "auto_run_safe") return value;
+	return "notify_only";
 }

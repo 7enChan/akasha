@@ -649,6 +649,11 @@ M0 Event Ontology
 	                                                  -> M24 Syscall Audit Mode
 	                                                    -> M25 Causal Task Graph
 	                                                      -> M26 Daemon Execution / Trust Boundary
+	                                                        -> M40 Resume Inbox Protocol
+	                                                          -> M41 Resume Closure Protocol
+	                                                            -> M42 Gateway Callback Modes
+	                                                              -> M43 Strict Syscall Repair Loop
+	                                                                -> M44 Policy Profiles
 ```
 
 ## 每阶段通用质量门槛
@@ -663,34 +668,39 @@ M0 Event Ontology
 
 ## 当前优先级
 
-当前已完成 **M26 Daemon Execution and Trust Boundary** 第一轮切片：callback dispatchers、CLI daemon/cache、projection cache hardening 和 embedding tombstone/purge 已进入代码基线。
+当前已完成 **M42-M44** 第一轮切片：
+
+- **M42 Gateway Callback Modes：** Telegram gateway callback delivery 支持 `notify_only`、`inbox_only`、`ask_before_run`、`auto_run_safe`，默认仍是保守通知模式。
+- **M43 Strict Syscall Repair Loop：** strict temporal protocol 会把未修复的 `time_syscall.missing` 注入下一次行动前上下文，并记录 `time_syscall.repair_prompt.injected`。
+- **M44 Policy Profiles：** `akasha.policyProfile` 支持 `observe`、`dogfood`、`strict`、`autonomous`，Temporal Kernel、callback runner 和 gateway 共享同一策略规则选择。
 
 推荐下一轮开发标题：
 
 ```text
-Akasha M27: Agent Resume Inbox and Strict Temporal Protocol
+Akasha M45: Autonomous Callback Execution and End-to-end Temporal Closure Eval
 ```
 
 建议第一批文件边界：
 
+- `packages/coding-agent/src/gateway/runner.ts`
+- `packages/coding-agent/src/core/akasha/callback-runner.ts`
 - `packages/coding-agent/src/core/akasha/callback-inbox.ts`
 - `packages/coding-agent/src/core/akasha/collector-extension.ts`
 - `packages/coding-agent/src/core/akasha/policy-kernel.ts`
 - `packages/coding-agent/src/core/akasha/time-syscall-audit.ts`
-- `packages/coding-agent/src/akasha-entry-cli.ts`
-- `packages/coding-agent/test/akasha-callback-dispatcher.test.ts`
-- `packages/coding-agent/test/akasha-time-syscall-audit.test.ts`
+- `packages/coding-agent/test/akasha-temporal-behavior-eval.test.ts`
+- `packages/coding-agent/test/gateway-runner.test.ts`
 
 建议第一批命令：
 
-- `akasha daemon run --dispatch agent_prompt_file`
-- `akasha cache rebuild`
-- `/akasha cache status`
-- `/akasha task-model`
+- `akasha gateway status`
+- `akasha daemon run --dispatch auto_run_safe`
+- `akasha inbox status`
+- `/akasha why <eventId>`
 
 建议第一批验收：
 
-- pending callback inbox 能在下次 `akasha` 启动时进入行动前上下文或启动提示。
-- strict syscall audit mode 能要求 repair，而不是只做 soft fallback。
-- Universal Policy Surface 增加实际 OS 级规则：export confirmation、reflection governed-only、embedding no suppressed source。
-- root README 与产品叙事进一步从 Akasha 切到 Akasha。
+- 构建一条端到端 fixture：commitment -> callback due -> gateway/inbox dispatch -> context injection -> syscall resolve -> callback/inbox completed -> later recall。
+- `auto_run_safe` 只自动执行经过 policy 判定的低风险 callback，高风险 callback 留在 inbox/manual review。
+- strict repair prompt 被处理后能自动关闭对应 `time_syscall.missing` 的 repair gap。
+- `/akasha why` 能解释 gateway callback delivery、auto-run、reply、syscall closure 的完整因果链。
