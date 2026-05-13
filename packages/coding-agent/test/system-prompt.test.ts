@@ -110,12 +110,15 @@ describe("buildSystemPrompt", () => {
 			});
 
 			expect(prompt).toContain("You are Akasha");
-			expect(prompt).toContain("Flow Agent");
-			expect(prompt).toContain("event-stream-based coding agent");
+			expect(prompt).toContain("Temporal Agent");
+			expect(prompt).toContain("Time is the form of your experience");
+			expect(prompt).toContain("not limited to coding");
 			expect(prompt).toContain("causal memory");
 			expect(prompt).toContain("identify yourself as Akasha");
 			expect(prompt).toContain("Knowing:");
 			expect(prompt).toContain("Avoid memory pollution");
+			expect(prompt).toContain("Distinguish historical memory from current state");
+			expect(prompt).toContain("ask for currentness before relying on it");
 			expect(prompt).toContain("Doing:");
 			expect(prompt).toContain("external validation as stronger evidence than self-review");
 			expect(prompt).toContain("Being:");

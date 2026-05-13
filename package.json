@@ -47,9 +47,9 @@
 	"engines": {
 		"node": ">=20.0.0"
 	},
-	"version": "0.0.3",
+	"version": "0.1.0",
 	"dependencies": {
-		"@earendil-works/akasha-coding-agent": "^0.74.0",
+		"@earendil-works/akasha-coding-agent": "^0.1.0",
 		"get-east-asian-width": "^1.4.0"
 	},
 	"overrides": {
