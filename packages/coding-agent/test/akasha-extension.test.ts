@@ -411,6 +411,98 @@ describe("Akasha collector extension", () => {
 		expect(contents).toContain('"kind":"policy.evaluated"');
 		expect(contents).toContain('"kind":"tool.blocked"');
 	});
+
+	it("closes HML recall feedback through real context, tool call, and tool result hooks", async () => {
+		const extension = createFakeExtension();
+		await createAkashaCollectorExtension({
+			agentDir,
+			settings: SettingsManager.inMemory({
+				akasha: {
+					enabled: true,
+					actionGate: {
+						enabled: true,
+						includeProjectState: false,
+						includeUserTimeline: false,
+					},
+					holographicMemory: {
+						enabled: true,
+						injectIntoActionGate: true,
+						recordRecallEvents: true,
+					},
+				},
+			}).getAkashaSettings(),
+		})(extension.akasha);
+		const ctx = fakeContext(cwd, sessionManager);
+
+		await extension.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+		await extension.emit("turn_start", { type: "turn_start", turnIndex: 0, timestamp: Date.now() }, ctx);
+		await extension.emit(
+			"tool_result",
+			{
+				type: "tool_result",
+				toolCallId: "call-failed",
+				toolName: "bash",
+				input: { command: "npm test" },
+				content: [{ type: "text", text: "npm test failed because cwd was wrong" }],
+				isError: true,
+				details: {},
+			} satisfies ToolResultEvent,
+			ctx,
+		);
+
+		const contextResult = (await extension.emit(
+			"context",
+			{
+				type: "context",
+				messages: [
+					{
+						role: "user",
+						content: [{ type: "text", text: "Retry the failed npm test from the correct cwd" }],
+						timestamp: Date.now(),
+					},
+				],
+			},
+			ctx,
+		)) as ContextEventResult | undefined;
+		expect(
+			contextResult?.messages?.some(
+				(message) => message.role === "custom" && message.customType === "akasha.action_gate",
+			),
+		).toBe(true);
+
+		await extension.emit(
+			"tool_call",
+			{
+				type: "tool_call",
+				toolCallId: "call-success",
+				toolName: "bash",
+				input: { command: "npm test" },
+			} satisfies ToolCallEvent,
+			ctx,
+		);
+		await extension.emit(
+			"tool_result",
+			{
+				type: "tool_result",
+				toolCallId: "call-success",
+				toolName: "bash",
+				input: { command: "npm test" },
+				content: [{ type: "text", text: "npm test passed" }],
+				isError: false,
+				details: {},
+			} satisfies ToolResultEvent,
+			ctx,
+		);
+
+		const lines = readLog(agentDir, sessionManager.getSessionId());
+		expect(lines.map((line) => line.kind)).toEqual(
+			expect.arrayContaining(["memory.recalled", "memory.applied", "memory.reinforced"]),
+		);
+		const applied = lines.find((line) => line.kind === "memory.applied" && line.toolCallId === "call-success");
+		const reinforced = lines.find((line) => line.kind === "memory.reinforced" && line.toolCallId === "call-success");
+		expect(applied?.payload.recallEventId).toEqual(expect.any(String));
+		expect(reinforced?.payload.appliedEventId).toBe(applied?.eventId);
+	});
 });
 
 function assistantTextMessage(text: string): AgentMessage {
@@ -479,6 +571,22 @@ function customMessageContent(message: AgentMessage | undefined): string {
 	if (!message || typeof message !== "object" || !("content" in message)) return "";
 	const content = message.content;
 	return typeof content === "string" ? content : JSON.stringify(content);
+}
+
+function readLog(
+	agentDir: string,
+	sessionId: string,
+): Array<{
+	eventId: string;
+	kind: string;
+	toolCallId?: string;
+	parentEventIds: string[];
+	payload: Record<string, unknown>;
+}> {
+	return readFileSync(resolveAkashaEventLogPath({}, agentDir, sessionId), "utf-8")
+		.split(/\r?\n/)
+		.filter(Boolean)
+		.map((line) => JSON.parse(line));
 }
 
 function createFakeExtension(): {

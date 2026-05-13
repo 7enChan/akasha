@@ -102,6 +102,78 @@ describe("Akasha temporal kernel", () => {
 			expect.arrayContaining(["time.callback.scheduled", "time.callback.completed"]),
 		);
 	});
+
+	it("records governance evidence on memory recall policy", () => {
+		const store = new JsonlAkashaStore(join(tempDir, "events.jsonl"));
+		const source = store.append({
+			kind: "message.user.submitted",
+			sessionId: "session-1",
+			streamId: "session:session-1",
+			eventTime: "2026-05-12T00:00:00.000Z",
+			actor: "user",
+			payload: { text: "Fix src/foo.ts" },
+			ttlPolicy: "long_term",
+		});
+		store.append({
+			kind: "tool.completed",
+			sessionId: "session-1",
+			streamId: "session:session-1",
+			eventTime: "2026-05-12T00:01:00.000Z",
+			actor: "tool",
+			payload: { toolName: "bash", isError: true, summary: "foo test failed" },
+			ttlPolicy: "long_term",
+		});
+		store.append({
+			kind: "event.redacted",
+			sessionId: "session-1",
+			streamId: "session:session-1",
+			eventTime: "2026-05-12T00:02:00.000Z",
+			actor: "system",
+			objectId: source.eventId,
+			parentEventIds: [source.eventId],
+			payload: { targetEventId: source.eventId, fields: ["payload"], reason: "test" },
+			ttlPolicy: "permanent",
+		});
+		const kernel = createAkashaTemporalKernel({
+			store,
+			sessionId: "session-1",
+			streamId: "session:session-1",
+			agentDir: tempDir,
+			reflection: reflectionOff(),
+		});
+
+		kernel.buildActionContext({
+			cwd: tempDir,
+			settings: {
+				enabled: true,
+				includeProjectState: false,
+				includeUserTimeline: false,
+				maxItems: 8,
+				enforceToolGate: false,
+				blockDestructiveCommands: true,
+				blockUnverifiedArtifactWrites: false,
+			},
+			holographicMemory: {
+				enabled: true,
+				injectIntoActionGate: true,
+				recordRecallEvents: true,
+				maxTraces: 24,
+				maxEpisodes: 3,
+				maxLessons: 3,
+				maxProcedures: 2,
+				maxWarnings: 3,
+			},
+			latestUserText: "Retry foo test",
+			sourceKey: "memory-policy-test",
+		});
+
+		const policy = store
+			.buildTimeline({ limit: 50 })
+			.find((event) => event.kind === "policy.evaluated" && event.payload.actionType === "memory_recall");
+		expect(policy?.payload.actionPayload).toMatchObject({
+			governanceRedactedSourceEventIds: expect.arrayContaining([source.eventId]),
+		});
+	});
 });
 
 function reflectionOff() {

@@ -308,7 +308,8 @@ function isFailureEvent(event: AkashaEvent): boolean {
 		event.kind === "prediction.corrected" ||
 		event.kind === "time.callback.failed" ||
 		event.kind === "gateway.delivery.failed" ||
-		event.kind === "failure.lesson_learned"
+		event.kind === "failure.lesson_learned" ||
+		event.kind === "skill.procedure.failed"
 	);
 }
 
@@ -320,7 +321,8 @@ function isSuccessEvent(event: AkashaEvent): boolean {
 		event.kind === "callback.inbox.consumed" ||
 		event.kind === "promise.resolved" ||
 		event.kind === "prediction.checked" ||
-		event.kind === "gateway.reply.sent"
+		event.kind === "gateway.reply.sent" ||
+		event.kind === "skill.procedure.reinforced"
 	);
 }
 
@@ -342,6 +344,7 @@ function isSkillEvent(event: AkashaEvent): boolean {
 		event.kind === "workflow.optimized" ||
 		event.kind === "pattern.detected" ||
 		event.kind === "failure.lesson_learned" ||
+		event.kind.startsWith("skill.procedure.") ||
 		event.kind === "memory.crystal.created" ||
 		event.kind === "memory.crystal.updated"
 	);

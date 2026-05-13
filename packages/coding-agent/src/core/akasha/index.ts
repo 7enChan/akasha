@@ -140,6 +140,8 @@ export {
 	createAkashaMemoryRecallScope,
 	readAkashaMemoryRecallScope,
 } from "./memory-recall-scope.js";
+export type { AkashaReconsolidationOptions } from "./memory-reconsolidation.js";
+export { deriveAkashaMemoryReconsolidationEvents } from "./memory-reconsolidation.js";
 export type { AkashaMemoryResonanceOptions, AkashaMemoryTraceScore } from "./memory-resonance.js";
 export { rankAkashaMemoryTraces, scoreAkashaMemoryTrace } from "./memory-resonance.js";
 export type { AkashaMemoryTrace, AkashaMemoryTraceKind } from "./memory-trace.js";
@@ -174,7 +176,9 @@ export { createAkashaDogfoodPreset, mergeAkashaSettings } from "./preset.js";
 export type { AkashaProceduralMemoryOptions, AkashaProcedure } from "./procedural-memory.js";
 export {
 	buildAkashaProceduralMemories,
+	createSkillProcedureAppliedDraft,
 	createSkillProcedureEventDraft,
+	createSkillProcedureOutcomeDraft,
 	formatAkashaProcedures,
 } from "./procedural-memory.js";
 export type { AkashaProcedurePolicy } from "./procedure-policy.js";

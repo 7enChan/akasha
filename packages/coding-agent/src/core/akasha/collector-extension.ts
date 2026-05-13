@@ -44,8 +44,14 @@ import {
 	akashaRecallScopeMatches,
 	readAkashaMemoryRecallScope,
 } from "./memory-recall-scope.js";
+import { deriveAkashaMemoryReconsolidationEvents } from "./memory-reconsolidation.js";
 import { deriveOpenLoopEvents } from "./open-loops.js";
 import { rulesForAkashaPolicyProfile } from "./policy-kernel.js";
+import {
+	type AkashaProcedure,
+	createSkillProcedureAppliedDraft,
+	createSkillProcedureOutcomeDraft,
+} from "./procedural-memory.js";
 import { createAkashaTemporalKernel } from "./temporal-kernel.js";
 import {
 	auditAkashaTimeSyscalls,
@@ -129,10 +135,15 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 		const injectedInboxItemIds = new Set<string>();
 		const injectedStrictRepairKeys = new Set<string>();
 		const toolMemoryApplications = new Map<string, { recallEventId: string; appliedEventId: string }>();
+		const toolProcedureApplications = new Map<
+			string,
+			Array<{ procedure: AkashaProcedure; appliedEventId: string }>
+		>();
 		let latestRecall:
 			| {
 					eventId: string;
 					scope?: AkashaMemoryRecallScope;
+					procedures: AkashaProcedure[];
 			  }
 			| undefined;
 
@@ -195,6 +206,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			injectedInboxItemIds.clear();
 			injectedStrictRepairKeys.clear();
 			toolMemoryApplications.clear();
+			toolProcedureApplications.clear();
 			latestRecall = undefined;
 		};
 
@@ -209,6 +221,17 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			if (!store || !sessionId) return;
 			const drafts = deriveOpenLoopEvents(store.buildTimeline({ limit: 500 }), sessionId, streamId);
 			for (const draft of drafts) {
+				append(draft);
+			}
+		};
+
+		const appendReconsolidationCandidates = (): void => {
+			if (!store || !sessionId) return;
+			for (const draft of deriveAkashaMemoryReconsolidationEvents(store.buildTimeline({ limit: 500 }), {
+				sessionId,
+				streamId,
+				maxDrafts: 4,
+			})) {
 				append(draft);
 			}
 		};
@@ -504,6 +527,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			const recorded = append(mapped);
 			if (recorded && event.message.role === "user") {
 				latestUserEventId = recorded.eventId;
+				appendReconsolidationCandidates();
 			}
 			if (recorded && event.message.role === "assistant") {
 				latestAssistantEventId = recorded.eventId;
@@ -641,6 +665,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 							actionType: "tool_call",
 							toolName: event.toolName,
 							toolCallId: event.toolCallId,
+							procedureIds: matchingRecall.procedures.map((procedure) => procedure.procedureId),
 							parentEventIds: parents(matchingRecall.eventId, policyEventId, ...parentEventIds),
 							correlationId: currentTurnEventId,
 							sourceKey: `memory-applied:${sessionId}:${event.toolCallId}:${matchingRecall.eventId}`,
@@ -653,6 +678,29 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 					recallEventId: matchingRecall.eventId,
 					appliedEventId: applied.eventId,
 				});
+				const procedureApplications = matchingRecall.procedures.map((procedure) => {
+					const procedureApplied = append(
+						createSkillProcedureAppliedDraft(procedure, {
+							sessionId: sessionId ?? ctx.sessionManager.getSessionId(),
+							streamId,
+							recallEventId: matchingRecall.eventId,
+							memoryAppliedEventId: applied.eventId,
+							toolName: event.toolName,
+							toolCallId: event.toolCallId,
+							parentEventIds: parents(applied.eventId, matchingRecall.eventId),
+							sourceKeyPrefix: `procedure-applied:${sessionId}:${event.toolCallId}`,
+							eventTime: nowIso(),
+						}),
+					);
+					return procedureApplied ? { procedure, appliedEventId: procedureApplied.eventId } : undefined;
+				});
+				toolProcedureApplications.set(
+					event.toolCallId,
+					procedureApplications.filter(
+						(application): application is { procedure: AkashaProcedure; appliedEventId: string } =>
+							application !== undefined,
+					),
+				);
 			}
 			const requested = append(
 				mapToolRequested(event, {
@@ -686,8 +734,9 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			if (completed) {
 				toolCompletedEventIds.set(event.toolCallId, completed.eventId);
 				const application = toolMemoryApplications.get(event.toolCallId);
+				let memoryOutcomeEvent: AkashaEvent | undefined;
 				if (application) {
-					append(
+					memoryOutcomeEvent = append(
 						createMemoryOutcomeDraft({
 							kind: event.isError ? "memory.weakened" : "memory.reinforced",
 							sessionId: sessionId ?? ctx.sessionManager.getSessionId(),
@@ -703,6 +752,31 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 						}),
 					);
 				}
+				for (const procedureApplication of toolProcedureApplications.get(event.toolCallId) ?? []) {
+					append(
+						createSkillProcedureOutcomeDraft(
+							event.isError ? "skill.procedure.failed" : "skill.procedure.reinforced",
+							procedureApplication.procedure,
+							{
+								sessionId: sessionId ?? ctx.sessionManager.getSessionId(),
+								streamId,
+								appliedEventId: procedureApplication.appliedEventId,
+								outcomeEvent: completed,
+								reason: event.isError ? "tool_result_failed" : "tool_result_succeeded",
+								parentEventIds: parents(
+									procedureApplication.appliedEventId,
+									completed.eventId,
+									memoryOutcomeEvent?.eventId,
+								),
+								sourceKeyPrefix: `procedure-outcome:${sessionId}:${event.toolCallId}:${
+									event.isError ? "failed" : "reinforced"
+								}`,
+								eventTime: nowIso(),
+							},
+						),
+					);
+				}
+				appendReconsolidationCandidates();
 			}
 
 			const outcome = mapToolOutcome(event, {
@@ -771,6 +845,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 						latestRecall = {
 							eventId: result.recalledEvent.eventId,
 							scope: readAkashaMemoryRecallScope(result.recalledEvent),
+							procedures: result.memoryField?.procedures ?? [],
 						};
 					}
 					messages.push({

@@ -319,6 +319,16 @@ function validatePayloadShape(event: AkashaEvent, issues: AkashaSchemaIssue[]): 
 		requireStringArrayPayload(event, issues, "steps");
 		requireStringArrayPayload(event, issues, "sourceEventIds");
 	}
+	if (event.kind === "skill.procedure.applied") {
+		requireStringPayload(event, issues, "procedureId");
+		requireStringPayload(event, issues, "recallEventId");
+		requireStringPayload(event, issues, "memoryAppliedEventId");
+	}
+	if (event.kind === "skill.procedure.reinforced" || event.kind === "skill.procedure.failed") {
+		requireStringPayload(event, issues, "procedureId");
+		requireStringPayload(event, issues, "appliedEventId");
+		requireStringPayload(event, issues, "outcomeEventId");
+	}
 }
 
 function requireStringPayload(event: AkashaEvent, issues: AkashaSchemaIssue[], key: string): void {

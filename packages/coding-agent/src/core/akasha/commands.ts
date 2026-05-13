@@ -22,6 +22,7 @@ import type { AkashaKarmaLedger } from "./karma-ledger.js";
 import { buildKarmaLedger } from "./karma-ledger.js";
 import { runAkashaDetachedMaintenance } from "./maintenance-runner.js";
 import { createMemoryGovernanceEvent } from "./memory-governance.js";
+import { deriveAkashaMemoryReconsolidationEvents } from "./memory-reconsolidation.js";
 import type { AkashaOpenLoopRecord } from "./open-loops.js";
 import { buildOpenLoopLedger } from "./open-loops.js";
 import { buildAkashaProjectTimeline, summarizeProjectTimeline } from "./project-timeline.js";
@@ -401,6 +402,7 @@ export function registerAkashaCommands(
 				const action = subcommand === "memory-pin" ? "pin" : subcommand === "memory-unpin" ? "unpin" : "suppress";
 				const reason = rest.slice(1).join(" ") || "user_requested";
 				const event = target.store.append(createMemoryGovernanceEvent(target.event, action, reason));
+				appendReconsolidationCandidates(target.store);
 				ctx.ui.notify(`${subcommand} recorded for ${target.event.eventId}: ${event.eventId}`, "info");
 				return;
 			}
@@ -430,6 +432,7 @@ export function registerAkashaCommands(
 					.filter(Boolean);
 				const reason = rest.slice(2).join(" ") || "user_requested";
 				const event = target.store.append(createRedactionEvent(target.event, fields, reason));
+				appendReconsolidationCandidates(target.store);
 				ctx.ui.notify(`Redaction recorded for ${target.event.eventId}: ${event.eventId}`, "info");
 				return;
 			}
@@ -929,6 +932,12 @@ function appendReviewFacts(lines: string[], label: string, facts: AkashaUserTime
 	}
 	for (const fact of facts.slice(0, 10)) {
 		lines.push(`- ${fact.eventId}${fact.pinned ? " [pinned]" : ""}: ${fact.text}`);
+	}
+}
+
+function appendReconsolidationCandidates(store: AkashaStore): void {
+	for (const draft of deriveAkashaMemoryReconsolidationEvents(store.buildTimeline({ limit: 500 }), { maxDrafts: 4 })) {
+		store.append(draft);
 	}
 }
 

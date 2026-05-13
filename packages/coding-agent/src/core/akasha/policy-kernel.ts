@@ -156,6 +156,7 @@ export function createPolicyEvaluatedPayload(
 		severity: decision.severity,
 		reason: decision.reason,
 		evidenceEventIds: decision.evidenceEventIds,
+		actionPayload: input.actionType === "memory_recall" ? input.payload : undefined,
 		validationPlan: decision.validationPlan,
 		confirmationPrompt: decision.confirmationPrompt,
 		callback: decision.callback,

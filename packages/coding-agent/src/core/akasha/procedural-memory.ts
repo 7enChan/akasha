@@ -88,6 +88,59 @@ export function createSkillProcedureEventDraft(
 	};
 }
 
+export function createSkillProcedureAppliedDraft(
+	procedure: AkashaProcedure,
+	options: {
+		sessionId: string;
+		streamId: string;
+		recallEventId: string;
+		memoryAppliedEventId: string;
+		toolCallId?: string;
+		toolName?: string;
+		eventTime?: string;
+		parentEventIds?: string[];
+		sourceKeyPrefix?: string;
+	},
+): AkashaEventDraft {
+	return skillProcedureFeedbackDraft("skill.procedure.applied", procedure, {
+		...options,
+		payload: {
+			recallEventId: options.recallEventId,
+			memoryAppliedEventId: options.memoryAppliedEventId,
+			toolCallId: options.toolCallId,
+			toolName: options.toolName,
+		},
+		importance: 0.55,
+	});
+}
+
+export function createSkillProcedureOutcomeDraft(
+	kind: "skill.procedure.reinforced" | "skill.procedure.failed",
+	procedure: AkashaProcedure,
+	options: {
+		sessionId: string;
+		streamId: string;
+		appliedEventId: string;
+		outcomeEvent: AkashaEvent;
+		reason: string;
+		eventTime?: string;
+		parentEventIds?: string[];
+		sourceKeyPrefix?: string;
+	},
+): AkashaEventDraft {
+	return skillProcedureFeedbackDraft(kind, procedure, {
+		...options,
+		toolCallId: options.outcomeEvent.toolCallId,
+		payload: {
+			appliedEventId: options.appliedEventId,
+			outcomeEventId: options.outcomeEvent.eventId,
+			reason: options.reason,
+			toolCallId: options.outcomeEvent.toolCallId,
+		},
+		importance: kind === "skill.procedure.reinforced" ? 0.65 : 0.82,
+	});
+}
+
 export function formatAkashaProcedures(procedures: AkashaProcedure[], maxItems = 2): string[] {
 	return procedures.slice(0, maxItems).map((procedure) => {
 		const steps = procedure.steps.slice(0, 4).map((step, index) => `${index + 1}. ${step}`);
@@ -158,7 +211,7 @@ function proceduresFromEvent(event: AkashaEvent): AkashaProcedure[] {
 		const procedureIdValue = stringPayload(event, "procedureId") ?? stringPayload(event, "title") ?? event.eventId;
 		return [
 			{
-				procedureId: procedureId("persisted", procedureIdValue),
+				procedureId: procedureIdValue,
 				scopeKey: stringPayload(event, "scopeKey") ?? `persisted:${procedureIdValue}`,
 				maturity: event.payload.maturity === "validated" ? "validated" : "candidate",
 				title: truncate(stringPayload(event, "title") ?? procedureIdValue, 90),
@@ -170,6 +223,25 @@ function proceduresFromEvent(event: AkashaEvent): AkashaProcedure[] {
 				confidence: numberPayload(event, "confidence") ?? 0.75,
 				successCount: numberPayload(event, "successCount") ?? 0,
 				failureCount: numberPayload(event, "failureCount") ?? 0,
+			},
+		];
+	}
+	if (event.kind === "skill.procedure.reinforced" || event.kind === "skill.procedure.failed") {
+		const procedureIdValue = stringPayload(event, "procedureId") ?? event.objectId ?? event.eventId;
+		return [
+			{
+				procedureId: procedureIdValue,
+				scopeKey: stringPayload(event, "scopeKey") ?? `feedback:${procedureIdValue}`,
+				maturity: event.kind === "skill.procedure.reinforced" ? "validated" : "candidate",
+				title: truncate(stringPayload(event, "title") ?? procedureIdValue, 90),
+				trigger: stringPayload(event, "trigger") ?? "When the procedure trigger matches",
+				steps: stringArrayPayload(event, "steps"),
+				contraindications: stringArrayPayload(event, "contraindications"),
+				validation: stringArrayPayload(event, "validation"),
+				sourceEventIds: sourceEventIds(event),
+				confidence: numberPayload(event, "confidence") ?? 0.65,
+				successCount: event.kind === "skill.procedure.reinforced" ? 1 : 0,
+				failureCount: event.kind === "skill.procedure.failed" ? 1 : 0,
 			},
 		];
 	}
@@ -198,6 +270,61 @@ function validationProcedure(event: AkashaEvent, command: string, success: numbe
 		successCount: success,
 		failureCount: failure,
 	};
+}
+
+function skillProcedureFeedbackDraft(
+	kind: "skill.procedure.applied" | "skill.procedure.reinforced" | "skill.procedure.failed",
+	procedure: AkashaProcedure,
+	options: {
+		sessionId: string;
+		streamId: string;
+		eventTime?: string;
+		parentEventIds?: string[];
+		sourceKeyPrefix?: string;
+		toolCallId?: string;
+		payload: Record<string, unknown>;
+		importance: number;
+	},
+): AkashaEventDraft {
+	return {
+		kind,
+		sessionId: options.sessionId,
+		streamId: options.streamId,
+		eventTime: options.eventTime ?? new Date().toISOString(),
+		actor: "system",
+		subjectId: "akasha.procedural_memory",
+		objectId: procedure.procedureId,
+		toolCallId: options.toolCallId,
+		sourceKey: `${options.sourceKeyPrefix ?? kind}:${procedure.procedureId}:${
+			stringPayloadFromRecord(options.payload, "toolCallId") ??
+			stringPayloadFromRecord(options.payload, "outcomeEventId") ??
+			stringPayloadFromRecord(options.payload, "memoryAppliedEventId") ??
+			"event"
+		}`,
+		parentEventIds: options.parentEventIds ?? procedure.sourceEventIds.slice(0, 8),
+		payload: {
+			procedureId: procedure.procedureId,
+			scopeKey: procedure.scopeKey,
+			maturity: procedure.maturity,
+			title: procedure.title,
+			trigger: procedure.trigger,
+			steps: procedure.steps,
+			contraindications: procedure.contraindications,
+			validation: procedure.validation,
+			sourceEventIds: procedure.sourceEventIds,
+			confidence: procedure.confidence,
+			successCount: procedure.successCount,
+			failureCount: procedure.failureCount,
+			...options.payload,
+		},
+		importance: options.importance,
+		ttlPolicy: "long_term",
+	};
+}
+
+function stringPayloadFromRecord(payload: Record<string, unknown>, key: string): string | undefined {
+	const value = payload[key];
+	return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function mergeProcedure(a: AkashaProcedure, b: AkashaProcedure): AkashaProcedure {

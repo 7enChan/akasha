@@ -29,6 +29,29 @@ describe("Akasha HML schema", () => {
 			"skill.procedure.created requires string[] payload.sourceEventIds",
 		);
 	});
+
+	it("requires procedure feedback payload links", () => {
+		expect(
+			validateAkashaEventStrict(event("skill.procedure.applied", { procedureId: "procedure-1" })).map(
+				(issue) => issue.message,
+			),
+		).toEqual(
+			expect.arrayContaining([
+				"skill.procedure.applied requires payload.recallEventId",
+				"skill.procedure.applied requires payload.memoryAppliedEventId",
+			]),
+		);
+		expect(
+			validateAkashaEventStrict(event("skill.procedure.failed", { procedureId: "procedure-1" })).map(
+				(issue) => issue.message,
+			),
+		).toEqual(
+			expect.arrayContaining([
+				"skill.procedure.failed requires payload.appliedEventId",
+				"skill.procedure.failed requires payload.outcomeEventId",
+			]),
+		);
+	});
 });
 
 function event(kind: AkashaEvent["kind"], payload: Record<string, unknown>): AkashaEvent {

@@ -33,6 +33,7 @@ export function createMemoryRecalledDraft(input: {
 			recalledEventIds: input.field.recalledEventIds,
 			recalledTraceIds: input.field.recalledTraceIds,
 			recalledCrystalIds: input.field.recalledCrystalIds,
+			procedureIds: input.field.procedures.map((procedure) => procedure.procedureId),
 			sections: ["episodes", "lessons", "procedures", "warnings"].filter((section) =>
 				fieldHasSection(input.field, section),
 			),
@@ -53,6 +54,7 @@ export function createMemoryAppliedDraft(input: {
 	actionType: string;
 	toolCallId?: string;
 	toolName?: string;
+	procedureIds?: string[];
 	parentEventIds?: string[];
 	correlationId?: string;
 	sourceKey?: string;
@@ -75,6 +77,7 @@ export function createMemoryAppliedDraft(input: {
 			actionType: input.actionType,
 			toolName: input.toolName,
 			toolCallId: input.toolCallId,
+			procedureIds: input.procedureIds ?? [],
 		},
 		importance: 0.55,
 		ttlPolicy: "long_term",

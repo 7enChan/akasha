@@ -19,6 +19,7 @@ import {
 	markAkashaCallbackCompleted,
 	runAkashaDaemonQueuePass,
 } from "./daemon-queue.js";
+import { projectAkashaGovernedEvents } from "./governance-projection.js";
 import { type AkashaReconstructedMemoryField, reconstructAkashaMemoryField } from "./holographic-memory.js";
 import { buildAkashaMemoryCue } from "./memory-cue.js";
 import { createMemoryRecalledDraft } from "./memory-recall-events.js";
@@ -154,6 +155,17 @@ export class AkashaTemporalKernel {
 			strictRepairMissingEventIds: options.strictRepairMissingEventIds,
 			eventTime: options.eventTime,
 		});
+		const memoryGovernance = rawMemoryField
+			? projectAkashaGovernedEvents(projectTimeline?.events ?? sessionEvents)
+			: undefined;
+		const memoryRecallBlockedSources =
+			rawMemoryField && memoryGovernance
+				? intersectStrings(rawMemoryField.sourceEventIds, [
+						...memoryGovernance.suppressedEventIds,
+						...memoryGovernance.redactedSourceEventIds,
+						...memoryGovernance.omittedDerivedEventIds,
+					])
+				: [];
 		const memoryRecallPolicy = rawMemoryField
 			? this.evaluateRuntimePolicy({
 					action: {
@@ -164,7 +176,10 @@ export class AkashaTemporalKernel {
 							recalledEventIds: rawMemoryField.recalledEventIds,
 							recalledTraceIds: rawMemoryField.recalledTraceIds,
 							tokenEstimate: rawMemoryField.tokenEstimate,
-							suppressedSourceEventIds: [],
+							suppressedSourceEventIds: memoryRecallBlockedSources,
+							governanceSuppressedEventIds: memoryGovernance?.suppressedEventIds ?? [],
+							governanceRedactedSourceEventIds: memoryGovernance?.redactedSourceEventIds ?? [],
+							governanceOmittedDerivedEventIds: memoryGovernance?.omittedDerivedEventIds ?? [],
 						},
 					},
 					parentEventIds: options.parentEventIds ?? [],
@@ -406,4 +421,9 @@ function withDefaultRules(
 ): AkashaRuntimePolicyAction {
 	if (action.rules !== undefined || rules === undefined) return action;
 	return { ...action, rules };
+}
+
+function intersectStrings(left: string[], right: string[]): string[] {
+	const rightSet = new Set(right);
+	return [...new Set(left.filter((value) => rightSet.has(value)))];
 }

@@ -42,6 +42,48 @@ describe("Akasha procedural memory", () => {
 		});
 	});
 
+	it("updates procedure counts from procedure feedback events", () => {
+		const created = event(1, "skill.procedure.created", {
+			procedureId: "procedure-1",
+			scopeKey: "validation:/repo:npm test",
+			maturity: "validated",
+			title: "Validate with npm test",
+			trigger: "/repo",
+			steps: ["Run npm test"],
+			contraindications: [],
+			validation: ["npm test"],
+			sourceEventIds: ["evt-source"],
+			confidence: 0.8,
+			successCount: 2,
+			failureCount: 0,
+		});
+		const reinforced = event(2, "skill.procedure.reinforced", {
+			procedureId: "procedure-1",
+			title: "Validate with npm test",
+			steps: ["Run npm test"],
+			sourceEventIds: ["evt-source"],
+			appliedEventId: "applied-1",
+			outcomeEventId: "outcome-1",
+		});
+		const failed = event(3, "skill.procedure.failed", {
+			procedureId: "procedure-1",
+			title: "Validate with npm test",
+			steps: ["Run npm test"],
+			sourceEventIds: ["evt-source"],
+			appliedEventId: "applied-2",
+			outcomeEventId: "outcome-2",
+		});
+
+		const procedures = buildAkashaProceduralMemories([created, reinforced, failed]);
+
+		expect(procedures[0]).toMatchObject({
+			procedureId: "procedure-1",
+			successCount: 3,
+			failureCount: 1,
+			maturity: "validated",
+		});
+	});
+
 	it("derives cautionary procedures from failure lessons", () => {
 		const procedures = buildAkashaProceduralMemories([
 			event(1, "failure.lesson_learned", {
