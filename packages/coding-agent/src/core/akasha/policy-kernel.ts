@@ -7,6 +7,7 @@ export type AkashaRuntimeActionType =
 	| "tool_call"
 	| "context_injection"
 	| "temporal_recall"
+	| "memory_recall"
 	| "callback_dispatch"
 	| "reflection"
 	| "embedding_index"
@@ -73,6 +74,11 @@ export const DEFAULT_AKASHA_RUNTIME_POLICY_RULES: AkashaPolicyRule[] = [
 	{
 		id: "block_context_with_suppressed_sources",
 		description: "Suppressed or redacted source events must not be injected into model context.",
+		severity: "critical",
+	},
+	{
+		id: "block_memory_recall_with_suppressed_sources",
+		description: "Holographic memory recall must not use suppressed or redacted source events.",
 		severity: "critical",
 	},
 	{
@@ -220,6 +226,18 @@ function evaluateRule(input: AkashaPolicyEvaluationInput, rule: AkashaPolicyRule
 				"block",
 				rule,
 				"Akasha blocked context injection from suppressed or redacted sources.",
+				suppressed,
+			);
+		}
+	}
+
+	if (rule.id === "block_memory_recall_with_suppressed_sources" && input.actionType === "memory_recall") {
+		const suppressed = stringArrayPayload(input, "suppressedSourceEventIds");
+		if (suppressed.length > 0) {
+			return decision(
+				"block",
+				rule,
+				"Akasha blocked holographic memory recall from suppressed or redacted sources.",
 				suppressed,
 			);
 		}

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { AkashaReconstructedMemoryField } from "./holographic-memory.js";
 import type { AkashaMemoryCue } from "./memory-cue.js";
+import type { AkashaMemoryRecallScope } from "./memory-recall-scope.js";
 import type { AkashaEvent, AkashaEventDraft } from "./types.js";
 
 export function createMemoryRecalledDraft(input: {
@@ -12,6 +13,7 @@ export function createMemoryRecalledDraft(input: {
 	sourceKey?: string;
 	correlationId?: string;
 	eventTime?: string;
+	scope?: AkashaMemoryRecallScope;
 }): AkashaEventDraft {
 	return {
 		kind: "memory.recalled",
@@ -37,6 +39,7 @@ export function createMemoryRecalledDraft(input: {
 			tokenEstimate: input.field.tokenEstimate,
 			topReasons: input.field.topReasons,
 			sourceEventIds: input.field.sourceEventIds,
+			scope: input.scope,
 		},
 		importance: input.field.warnings.some((warning) => warning.severity === "critical") ? 0.85 : 0.65,
 		ttlPolicy: "long_term",

@@ -93,7 +93,10 @@ export function reconstructAkashaMemoryField(input: {
 	const lessons = buildLessons(ranked).slice(0, options.maxLessons ?? 3);
 	const procedures = buildAkashaProceduralMemories(input.events, {
 		maxProcedures: options.maxProcedures ?? 2,
-	}).filter((procedure) => procedureMatchesField(procedure, input.cue, recalledEventIds));
+	}).filter(
+		(procedure) =>
+			procedure.maturity === "validated" && procedureMatchesField(procedure, input.cue, recalledEventIds),
+	);
 	const warnings = buildWarnings(ranked).slice(0, options.maxWarnings ?? 3);
 	const patterns = buildPatterns(ranked).slice(0, 3);
 	const suggestedActions = buildSuggestedActions(procedures, warnings).slice(0, 3);

@@ -39,6 +39,11 @@ import {
 	truncateText,
 } from "./mapper.js";
 import { createMemoryAppliedDraft, createMemoryOutcomeDraft } from "./memory-recall-events.js";
+import {
+	type AkashaMemoryRecallScope,
+	akashaRecallScopeMatches,
+	readAkashaMemoryRecallScope,
+} from "./memory-recall-scope.js";
 import { deriveOpenLoopEvents } from "./open-loops.js";
 import { rulesForAkashaPolicyProfile } from "./policy-kernel.js";
 import { createAkashaTemporalKernel } from "./temporal-kernel.js";
@@ -124,7 +129,12 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 		const injectedInboxItemIds = new Set<string>();
 		const injectedStrictRepairKeys = new Set<string>();
 		const toolMemoryApplications = new Map<string, { recallEventId: string; appliedEventId: string }>();
-		let latestRecallEventId: string | undefined;
+		let latestRecall:
+			| {
+					eventId: string;
+					scope?: AkashaMemoryRecallScope;
+			  }
+			| undefined;
 
 		const nowIso = () => new Date().toISOString();
 		const nextSourceKey = (scope: string) =>
@@ -185,7 +195,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			injectedInboxItemIds.clear();
 			injectedStrictRepairKeys.clear();
 			toolMemoryApplications.clear();
-			latestRecallEventId = undefined;
+			latestRecall = undefined;
 		};
 
 		const append = (draft: AkashaEventDraft): AkashaEvent | undefined => {
@@ -416,10 +426,12 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			currentTurnEventId = undefined;
 			latestUserEventId = undefined;
 			latestAssistantEventId = undefined;
+			latestRecall = undefined;
 		});
 
 		akasha.on("turn_start", (event, ctx) => {
 			ensureStore(ctx);
+			latestRecall = undefined;
 			const turn = append(
 				baseDraft(
 					"turn.started",
@@ -611,25 +623,34 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 					reason: formatPolicyBlockReason(gateDecision),
 				};
 			}
-			const applied = latestRecallEventId
+			const matchingRecall =
+				latestRecall &&
+				akashaRecallScopeMatches({
+					scope: latestRecall.scope,
+					currentTurnEventId,
+					correlationId: currentTurnEventId,
+				})
+					? latestRecall
+					: undefined;
+			const applied = matchingRecall
 				? append(
 						createMemoryAppliedDraft({
 							sessionId: sessionId ?? ctx.sessionManager.getSessionId(),
 							streamId,
-							recallEventId: latestRecallEventId,
+							recallEventId: matchingRecall.eventId,
 							actionType: "tool_call",
 							toolName: event.toolName,
 							toolCallId: event.toolCallId,
-							parentEventIds: parents(latestRecallEventId, policyEventId, ...parentEventIds),
+							parentEventIds: parents(matchingRecall.eventId, policyEventId, ...parentEventIds),
 							correlationId: currentTurnEventId,
-							sourceKey: `memory-applied:${sessionId}:${event.toolCallId}:${latestRecallEventId}`,
+							sourceKey: `memory-applied:${sessionId}:${event.toolCallId}:${matchingRecall.eventId}`,
 							eventTime: nowIso(),
 						}),
 					)
 				: undefined;
-			if (applied && latestRecallEventId) {
+			if (applied && matchingRecall) {
 				toolMemoryApplications.set(event.toolCallId, {
-					recallEventId: latestRecallEventId,
+					recallEventId: matchingRecall.eventId,
 					appliedEventId: applied.eventId,
 				});
 			}
@@ -741,11 +762,17 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 					parentEventIds: parents(currentTurnEventId, latestLeafEventId),
 					correlationId: currentTurnEventId,
 					sourceKey: nextSourceKey("action-gate"),
+					turnEventId: currentTurnEventId,
 				});
 				const gate = result?.gate;
 				if (gate) {
 					if (result.auditEvent) latestLeafEventId = result.auditEvent.eventId;
-					if (result.recalledEvent) latestRecallEventId = result.recalledEvent.eventId;
+					if (result.recalledEvent) {
+						latestRecall = {
+							eventId: result.recalledEvent.eventId,
+							scope: readAkashaMemoryRecallScope(result.recalledEvent),
+						};
+					}
 					messages.push({
 						role: "custom",
 						customType: "akasha.action_gate",

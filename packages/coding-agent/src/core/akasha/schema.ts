@@ -283,4 +283,53 @@ function validatePayloadShape(event: AkashaEvent, issues: AkashaSchemaIssue[]): 
 			issues.push(issue(event.eventId, "invalid_shape", "prediction.made requires payload.claim"));
 		}
 	}
+	if (event.kind === "memory.recalled") {
+		requireStringPayload(event, issues, "fieldId");
+		requireStringPayload(event, issues, "cueId");
+		requireStringArrayPayload(event, issues, "recalledEventIds");
+		requireStringArrayPayload(event, issues, "recalledTraceIds");
+	}
+	if (event.kind === "memory.applied") {
+		requireStringPayload(event, issues, "recallEventId");
+		requireStringPayload(event, issues, "actionType");
+	}
+	if (event.kind === "memory.reinforced" || event.kind === "memory.weakened") {
+		requireStringPayload(event, issues, "recallEventId");
+		requireStringPayload(event, issues, "appliedEventId");
+		requireStringPayload(event, issues, "outcomeEventId");
+	}
+	if (event.kind === "memory.reconsolidated") {
+		requireStringPayload(event, issues, "oldMemoryEventId");
+		requireStringPayload(event, issues, "newMemoryEventId");
+	}
+	if (event.kind === "memory.decayed") {
+		if (typeof event.payload.traceId !== "string" && typeof event.payload.targetEventId !== "string") {
+			issues.push(issue(event.eventId, "invalid_shape", "memory.decayed requires traceId or targetEventId"));
+		}
+	}
+	if (event.kind === "sleep.replay.started" && typeof event.payload.eventCount !== "number") {
+		issues.push(issue(event.eventId, "invalid_shape", "sleep.replay.started requires payload.eventCount"));
+	}
+	if (event.kind === "sleep.replay.completed") {
+		requireStringArrayPayload(event, issues, "derivedEventIds");
+	}
+	if (event.kind === "skill.procedure.created" || event.kind === "skill.procedure.updated") {
+		requireStringPayload(event, issues, "procedureId");
+		requireStringPayload(event, issues, "title");
+		requireStringArrayPayload(event, issues, "steps");
+		requireStringArrayPayload(event, issues, "sourceEventIds");
+	}
+}
+
+function requireStringPayload(event: AkashaEvent, issues: AkashaSchemaIssue[], key: string): void {
+	if (typeof event.payload[key] !== "string") {
+		issues.push(issue(event.eventId, "invalid_shape", `${event.kind} requires payload.${key}`));
+	}
+}
+
+function requireStringArrayPayload(event: AkashaEvent, issues: AkashaSchemaIssue[], key: string): void {
+	const value = event.payload[key];
+	if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+		issues.push(issue(event.eventId, "invalid_shape", `${event.kind} requires string[] payload.${key}`));
+	}
 }

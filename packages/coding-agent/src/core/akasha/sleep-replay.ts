@@ -193,7 +193,9 @@ function deriveProcedures(
 	now: Date,
 	startedEventId: string,
 ): AkashaEventDraft[] {
-	const procedures = buildAkashaProceduralMemories(events, { maxProcedures: 6 });
+	const procedures = buildAkashaProceduralMemories(events, { maxProcedures: 6 }).filter(
+		(procedure) => procedure.maturity === "validated",
+	);
 	return procedures.map((procedure) =>
 		createSkillProcedureEventDraft(procedure, {
 			sessionId,
@@ -214,7 +216,13 @@ function deriveMemoryDecay(
 ): AkashaEventDraft[] {
 	const traces = buildAkashaMemoryTraces(events);
 	return traces
-		.filter((trace) => trace.weight < 0.3 && trace.confidence < 0.8)
+		.filter(
+			(trace) =>
+				trace.recallCount > 0 &&
+				trace.weight < 0.3 &&
+				trace.confidence < 0.8 &&
+				["semantic", "artifact", "failure", "callback", "skill", "policy"].includes(trace.kind),
+		)
 		.slice(0, 3)
 		.map((trace) => ({
 			kind: "memory.decayed" as const,

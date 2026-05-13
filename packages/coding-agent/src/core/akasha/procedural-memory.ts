@@ -12,6 +12,8 @@ import type { AkashaEvent, AkashaEventDraft } from "./types.js";
 
 export interface AkashaProcedure {
 	procedureId: string;
+	scopeKey: string;
+	maturity: "candidate" | "validated";
 	title: string;
 	trigger: string;
 	steps: string[];
@@ -78,6 +80,8 @@ export function createSkillProcedureEventDraft(
 			confidence: procedure.confidence,
 			successCount: procedure.successCount,
 			failureCount: procedure.failureCount,
+			scopeKey: procedure.scopeKey,
+			maturity: procedure.maturity,
 		},
 		importance: 0.75,
 		ttlPolicy: "long_term",
@@ -111,6 +115,8 @@ function proceduresFromEvent(event: AkashaEvent): AkashaProcedure[] {
 		return [
 			{
 				procedureId: procedureId("workflow", title),
+				scopeKey: `workflow:${title}`,
+				maturity: "validated",
 				title: truncate(title, 90),
 				trigger: stringPayload(event, "trigger") ?? "When the same workflow context appears",
 				steps:
@@ -132,6 +138,8 @@ function proceduresFromEvent(event: AkashaEvent): AkashaProcedure[] {
 		return [
 			{
 				procedureId: procedureId("lesson", lesson),
+				scopeKey: `lesson:${lesson}`,
+				maturity: "candidate",
 				title: truncate(`Avoid repeat failure: ${lesson}`, 90),
 				trigger: stringPayload(event, "trigger") ?? "When a similar failure pressure appears",
 				steps: [lesson, "Validate the corrected path before closing the loop"],
@@ -151,6 +159,8 @@ function proceduresFromEvent(event: AkashaEvent): AkashaProcedure[] {
 		return [
 			{
 				procedureId: procedureId("persisted", procedureIdValue),
+				scopeKey: stringPayload(event, "scopeKey") ?? `persisted:${procedureIdValue}`,
+				maturity: event.payload.maturity === "validated" ? "validated" : "candidate",
 				title: truncate(stringPayload(event, "title") ?? procedureIdValue, 90),
 				trigger: stringPayload(event, "trigger") ?? "When the procedure trigger matches",
 				steps: stringArrayPayload(event, "steps"),
@@ -168,10 +178,14 @@ function proceduresFromEvent(event: AkashaEvent): AkashaProcedure[] {
 
 function validationProcedure(event: AkashaEvent, command: string, success: number, failure: number): AkashaProcedure {
 	const normalized = command.replace(/\s+/g, " ").trim();
+	const cwd = stringPayload(event, "cwd") ?? "unknown-cwd";
+	const scopeKey = `${cwd}:${normalized}`;
 	return {
-		procedureId: procedureId("validation", normalized),
+		procedureId: procedureId("validation", scopeKey),
+		scopeKey,
+		maturity: "candidate",
 		title: truncate(`Validate with ${normalized}`, 90),
-		trigger: stringPayload(event, "cwd") ?? "When related artifacts change",
+		trigger: cwd === "unknown-cwd" ? "When related artifacts change" : cwd,
 		steps: [
 			"Identify the package or project root for the changed artifacts",
 			`Run ${normalized}`,
@@ -180,7 +194,7 @@ function validationProcedure(event: AkashaEvent, command: string, success: numbe
 		contraindications: failure > 0 ? [`Previous failure for ${normalized}; inspect cwd and target paths first`] : [],
 		validation: [normalized],
 		sourceEventIds: sourceEventIds(event),
-		confidence: success > 0 ? 0.78 : 0.56,
+		confidence: success > 0 ? 0.58 : 0.56,
 		successCount: success,
 		failureCount: failure,
 	};
@@ -192,6 +206,8 @@ function mergeProcedure(a: AkashaProcedure, b: AkashaProcedure): AkashaProcedure
 	const confidence = clamp01(
 		(a.confidence + b.confidence) / 2 + Math.min(0.15, successCount * 0.03) - failureCount * 0.02,
 	);
+	const maturity =
+		successCount >= 2 || a.maturity === "validated" || b.maturity === "validated" ? "validated" : "candidate";
 	return {
 		...a,
 		steps: uniqueStrings([...a.steps, ...b.steps]).slice(0, 8),
@@ -201,6 +217,7 @@ function mergeProcedure(a: AkashaProcedure, b: AkashaProcedure): AkashaProcedure
 		confidence,
 		successCount,
 		failureCount,
+		maturity,
 	};
 }
 

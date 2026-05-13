@@ -70,6 +70,15 @@ function appendFixtureEvents(store: JsonlAkashaStore): void {
 		payload: { command: "npm --prefix packages/coding-agent test -- akasha", exitCode: 0, cwd: "/repo" },
 	});
 	store.append({
+		kind: "command.executed",
+		sessionId: "session-1",
+		streamId: "session:session-1",
+		eventTime: "2026-05-12T00:03:30.000Z",
+		actor: "tool",
+		objectId: "npm --prefix packages/coding-agent test -- akasha",
+		payload: { command: "npm --prefix packages/coding-agent test -- akasha", exitCode: 0, cwd: "/repo" },
+	});
+	store.append({
 		kind: "time.callback.completed",
 		sessionId: "session-1",
 		streamId: "session:session-1",

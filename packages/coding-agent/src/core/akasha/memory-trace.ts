@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { projectAkashaGovernedEvents } from "./governance-projection.js";
+import { applyAkashaMemoryFeedbackToTraces, buildAkashaMemoryFeedback } from "./memory-feedback.js";
 import { orderAkashaEvents } from "./ordering.js";
 import type { AkashaEvent } from "./types.js";
 
@@ -38,7 +39,9 @@ export interface AkashaMemoryTrace {
 }
 
 export function buildAkashaMemoryTraces(events: AkashaEvent[]): AkashaMemoryTrace[] {
-	return orderAkashaEvents(projectAkashaGovernedEvents(events).events).flatMap(eventToTraces);
+	const governed = orderAkashaEvents(projectAkashaGovernedEvents(events).events);
+	const traces = governed.flatMap(eventToTraces);
+	return applyAkashaMemoryFeedbackToTraces(traces, buildAkashaMemoryFeedback(governed));
 }
 
 export function createAkashaMemoryTrace(

@@ -14,10 +14,31 @@ describe("Akasha procedural memory", () => {
 
 		expect(procedures).toHaveLength(1);
 		expect(procedures[0]).toMatchObject({
+			maturity: "candidate",
 			title: "Validate with npm --prefix packages/coding-agent test -- akasha",
 			validation: ["npm --prefix packages/coding-agent test -- akasha"],
 			successCount: 1,
 			failureCount: 0,
+		});
+	});
+
+	it("matures validation procedures after repeated success in the same scope", () => {
+		const procedures = buildAkashaProceduralMemories([
+			event(1, "command.executed", {
+				command: "npm --prefix packages/coding-agent test -- akasha",
+				exitCode: 0,
+				cwd: "/repo",
+			}),
+			event(2, "command.executed", {
+				command: "npm --prefix packages/coding-agent test -- akasha",
+				exitCode: 0,
+				cwd: "/repo",
+			}),
+		]);
+
+		expect(procedures[0]).toMatchObject({
+			maturity: "validated",
+			successCount: 2,
 		});
 	});
 

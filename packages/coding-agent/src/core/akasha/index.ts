@@ -118,6 +118,8 @@ export {
 } from "./mapper.js";
 export type { AkashaMemoryCue, AkashaMemoryCueOptions } from "./memory-cue.js";
 export { buildAkashaMemoryCue } from "./memory-cue.js";
+export type { AkashaMemoryFeedbackProjection, AkashaMemoryTraceFeedback } from "./memory-feedback.js";
+export { applyAkashaMemoryFeedbackToTraces, buildAkashaMemoryFeedback } from "./memory-feedback.js";
 export type { AkashaMemoryGovernanceAction, AkashaMemoryGovernanceState } from "./memory-governance.js";
 export {
 	buildMemoryGovernance,
@@ -132,11 +134,22 @@ export {
 	createMemoryRecalledDraft,
 	createMemoryReconsolidatedDraft,
 } from "./memory-recall-events.js";
+export type { AkashaMemoryRecallScope } from "./memory-recall-scope.js";
+export {
+	akashaRecallScopeMatches,
+	createAkashaMemoryRecallScope,
+	readAkashaMemoryRecallScope,
+} from "./memory-recall-scope.js";
 export type { AkashaMemoryResonanceOptions, AkashaMemoryTraceScore } from "./memory-resonance.js";
 export { rankAkashaMemoryTraces, scoreAkashaMemoryTrace } from "./memory-resonance.js";
 export type { AkashaMemoryTrace, AkashaMemoryTraceKind } from "./memory-trace.js";
 export { buildAkashaMemoryTraces, createAkashaMemoryTrace } from "./memory-trace.js";
-export { buildCachedAkashaMemoryTraces, memoryTraceProjectionCacheKey } from "./memory-trace-cache.js";
+export {
+	buildCachedAkashaMemoryTraces,
+	buildCachedAkashaMemoryTracesFromEvents,
+	memoryTraceProjectionCacheKey,
+	memoryTraceProjectionCacheKeyForScope,
+} from "./memory-trace-cache.js";
 export type { AkashaOpenLoopRecord } from "./open-loops.js";
 export { buildOpenLoopLedger, deriveOpenLoopEvents } from "./open-loops.js";
 export { compareAkashaEvents, orderAkashaEvents } from "./ordering.js";

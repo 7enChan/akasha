@@ -22,7 +22,12 @@ import {
 import { type AkashaReconstructedMemoryField, reconstructAkashaMemoryField } from "./holographic-memory.js";
 import { buildAkashaMemoryCue } from "./memory-cue.js";
 import { createMemoryRecalledDraft } from "./memory-recall-events.js";
-import { buildAkashaMemoryTraces } from "./memory-trace.js";
+import { createAkashaMemoryRecallScope } from "./memory-recall-scope.js";
+import {
+	buildCachedAkashaMemoryTraces,
+	buildCachedAkashaMemoryTracesFromEvents,
+	memoryTraceProjectionCacheKeyForScope,
+} from "./memory-trace-cache.js";
 import {
 	type AkashaPolicyDecision,
 	type AkashaPolicyRule,
@@ -61,6 +66,7 @@ export interface AkashaActionContextBuildOptions {
 	strictRepairMissingEventIds?: string[];
 	parentEventIds?: string[];
 	correlationId?: string;
+	turnEventId?: string;
 	sourceKey?: string;
 	eventTime?: string;
 }
@@ -137,7 +143,7 @@ export class AkashaTemporalKernel {
 					limit: 1000,
 				})
 			: undefined;
-		const memoryField = this.buildHolographicMemoryField({
+		const rawMemoryField = this.buildHolographicMemoryField({
 			sessionEvents,
 			projectTimeline,
 			userTimeline,
@@ -148,6 +154,26 @@ export class AkashaTemporalKernel {
 			strictRepairMissingEventIds: options.strictRepairMissingEventIds,
 			eventTime: options.eventTime,
 		});
+		const memoryRecallPolicy = rawMemoryField
+			? this.evaluateRuntimePolicy({
+					action: {
+						type: "memory_recall",
+						subject: "akasha.holographic_memory",
+						objectId: rawMemoryField.fieldId,
+						payload: {
+							recalledEventIds: rawMemoryField.recalledEventIds,
+							recalledTraceIds: rawMemoryField.recalledTraceIds,
+							tokenEstimate: rawMemoryField.tokenEstimate,
+							suppressedSourceEventIds: [],
+						},
+					},
+					parentEventIds: options.parentEventIds ?? [],
+					correlationId: options.correlationId,
+					sourceKey: options.sourceKey ? `${options.sourceKey}:memory-recall-policy` : undefined,
+					eventTime: options.eventTime,
+				})
+			: undefined;
+		const memoryField = memoryRecallPolicy?.decision.action === "allow" ? rawMemoryField : undefined;
 		const gate = buildAkashaActionGateContext({
 			sessionEvents,
 			projectTimeline,
@@ -168,7 +194,9 @@ export class AkashaTemporalKernel {
 					maxTokenEstimate: MAX_ACTION_GATE_TOKEN_ESTIMATE,
 				},
 			},
-			parentEventIds: options.parentEventIds ?? [],
+			parentEventIds: [memoryRecallPolicy?.event.eventId, ...(options.parentEventIds ?? [])].filter(
+				(id): id is string => typeof id === "string",
+			),
 			correlationId: options.correlationId,
 			sourceKey: options.sourceKey ? `${options.sourceKey}:policy` : undefined,
 			eventTime: options.eventTime,
@@ -184,12 +212,18 @@ export class AkashaTemporalKernel {
 							field: memoryField,
 							parentEventIds: [
 								policy.event.eventId,
+								memoryRecallPolicy?.event.eventId,
 								...(options.parentEventIds ?? []),
 								...memoryField.sourceEventIds.slice(0, 8),
-							],
+							].filter((id): id is string => typeof id === "string"),
 							correlationId: options.correlationId,
 							sourceKey: options.sourceKey ? `${options.sourceKey}:memory-recalled` : undefined,
 							eventTime: options.eventTime,
+							scope: createAkashaMemoryRecallScope({
+								turnId: options.turnEventId ?? options.correlationId,
+								correlationId: options.correlationId,
+								expiresAfterTurn: true,
+							}),
 						}),
 					)
 				: undefined;
@@ -232,7 +266,21 @@ export class AkashaTemporalKernel {
 		const settings = input.settings;
 		if (!settings?.enabled || !settings.injectIntoActionGate) return undefined;
 		const events = input.projectTimeline?.events ?? input.sessionEvents;
-		const traces = buildAkashaMemoryTraces(events);
+		const traceLimit = 1000;
+		const traces = input.projectTimeline
+			? buildCachedAkashaMemoryTracesFromEvents(events, {
+					agentDir: this.agentDir,
+					eventLogDir: this.eventLogDir,
+					scope: "project",
+					cacheKey: memoryTraceProjectionCacheKeyForScope(`project:${input.cwd}`, traceLimit),
+					sourceLogPaths: input.projectTimeline.sessions.map((session) => session.eventLogPath),
+					limit: traceLimit,
+				}).value
+			: buildCachedAkashaMemoryTraces(this.store, {
+					agentDir: this.agentDir,
+					eventLogDir: this.eventLogDir,
+					limit: traceLimit,
+				}).value;
 		if (traces.length === 0) return undefined;
 		const cue = buildAkashaMemoryCue({
 			latestUserText: input.latestUserText,

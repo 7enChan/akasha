@@ -127,4 +127,13 @@ function appendFixtureEvents(store: JsonlAkashaStore, cwd: string): void {
 		objectId: "npm test src/foo.test.ts",
 		payload: { command: "npm test src/foo.test.ts", exitCode: 0, cwd },
 	});
+	store.append({
+		kind: "command.executed",
+		sessionId: "session-1",
+		streamId: "session:session-1",
+		eventTime: "2026-05-12T00:05:00.000Z",
+		actor: "tool",
+		objectId: "npm test src/foo.test.ts",
+		payload: { command: "npm test src/foo.test.ts", exitCode: 0, cwd },
+	});
 }
