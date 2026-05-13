@@ -1,5 +1,11 @@
 import { type Static, Type } from "typebox";
 import type { AgentToolResult } from "../extensions/types.js";
+import {
+	appendAkashaCallbackInboxEvent,
+	appendAkashaCallbackInboxStatus,
+	listAkashaActionableCallbackPrompts,
+} from "./callback-inbox.js";
+import { markAkashaCallbackCompleted } from "./daemon-queue.js";
 import type { AkashaEvent, AkashaEventDraft, AkashaStore } from "./types.js";
 
 export const AKASHA_TIME_SYSCALL_TOOL_NAMES = [
@@ -20,6 +26,7 @@ export interface AkashaTimeSyscallContext {
 	correlationId?: string;
 	toolCallId?: string;
 	sourceKeyPrefix?: string;
+	agentDir?: string;
 }
 
 export const createCommitmentSchema = Type.Object({
@@ -34,6 +41,8 @@ export const resolveCommitmentSchema = Type.Object({
 	promiseId: Type.String(),
 	resolution: Type.Optional(Type.String()),
 	evidenceEventId: Type.Optional(Type.String()),
+	callbackId: Type.Optional(Type.String()),
+	inboxItemId: Type.Optional(Type.String()),
 });
 
 export const createPredictionSchema = Type.Object({
@@ -50,6 +59,8 @@ export const checkPredictionSchema = Type.Object({
 	correct: Type.Optional(Type.Boolean()),
 	correction: Type.Optional(Type.String()),
 	evidenceEventId: Type.Optional(Type.String()),
+	callbackId: Type.Optional(Type.String()),
+	inboxItemId: Type.Optional(Type.String()),
 });
 
 export type CreateCommitmentInput = Static<typeof createCommitmentSchema>;
@@ -82,7 +93,7 @@ export function appendAkashaCommitmentResolution(
 	ctx: AkashaTimeSyscallContext,
 	input: ResolveCommitmentInput,
 ): AkashaEvent {
-	return ctx.store.append({
+	const resolved = ctx.store.append({
 		...baseDraft(ctx, "promise.resolved", [input.promiseId, input.evidenceEventId]),
 		subjectId: "akasha.time_syscall",
 		objectId: input.promiseId,
@@ -93,11 +104,15 @@ export function appendAkashaCommitmentResolution(
 			promiseId: input.promiseId,
 			resolution: input.resolution ?? "resolved",
 			evidenceEventId: input.evidenceEventId,
+			callbackId: input.callbackId,
+			inboxItemId: input.inboxItemId,
 			source: "syscall",
 			toolCallId: ctx.toolCallId,
 		},
 		importance: 0.8,
 	});
+	closeResumeCallbackAfterSyscall(ctx, input, resolved, "commitment_resolved");
+	return resolved;
 }
 
 export function appendAkashaPrediction(ctx: AkashaTimeSyscallContext, input: CreatePredictionInput): AkashaEvent {
@@ -123,7 +138,7 @@ export function appendAkashaPrediction(ctx: AkashaTimeSyscallContext, input: Cre
 
 export function appendAkashaPredictionCheck(ctx: AkashaTimeSyscallContext, input: CheckPredictionInput): AkashaEvent {
 	const kind = input.correct === false || input.correction ? "prediction.corrected" : "prediction.checked";
-	return ctx.store.append({
+	const checked = ctx.store.append({
 		...baseDraft(ctx, kind, [input.predictionId, input.evidenceEventId]),
 		subjectId: "akasha.time_syscall",
 		objectId: input.predictionId,
@@ -136,11 +151,15 @@ export function appendAkashaPredictionCheck(ctx: AkashaTimeSyscallContext, input
 			correct: input.correct,
 			correction: input.correction,
 			evidenceEventId: input.evidenceEventId,
+			callbackId: input.callbackId,
+			inboxItemId: input.inboxItemId,
 			source: "syscall",
 			toolCallId: ctx.toolCallId,
 		},
 		importance: kind === "prediction.corrected" ? 0.9 : 0.8,
 	});
+	closeResumeCallbackAfterSyscall(ctx, input, checked, "prediction_checked");
+	return checked;
 }
 
 export function isAkashaTimeSyscallToolName(name: string | undefined): name is AkashaTimeSyscallToolName {
@@ -184,4 +203,48 @@ function stableId(text: string): string {
 		hash = (hash * 31 + char.charCodeAt(0)) | 0;
 	}
 	return Math.abs(hash).toString(36);
+}
+
+function closeResumeCallbackAfterSyscall(
+	ctx: AkashaTimeSyscallContext,
+	input: { callbackId?: string; inboxItemId?: string },
+	evidenceEvent: AkashaEvent,
+	reason: string,
+): void {
+	const actionable = ctx.agentDir ? listAkashaActionableCallbackPrompts(ctx.agentDir) : [];
+	const itemFromInboxId = input.inboxItemId
+		? actionable.find((item) => item.prompt.id === input.inboxItemId)
+		: undefined;
+	const callbackId = input.callbackId ?? itemFromInboxId?.prompt.callbackId;
+	if (!callbackId) return;
+
+	const completed = markAkashaCallbackCompleted(ctx.store, callbackId, {
+		evidenceEventId: evidenceEvent.eventId,
+		eventTime: evidenceEvent.eventTime,
+		reason,
+	});
+	if (!ctx.agentDir) return;
+
+	const matchingItems = actionable.filter(
+		(item) =>
+			item.prompt.callbackId === callbackId ||
+			(input.inboxItemId !== undefined && item.prompt.id === input.inboxItemId),
+	);
+	for (const item of matchingItems) {
+		const inboxEvent = appendAkashaCallbackInboxEvent(ctx.store, "callback.inbox.consumed", item.prompt, {
+			eventTime: evidenceEvent.eventTime,
+			sessionId: ctx.sessionId,
+			streamId: ctx.streamId,
+			consumerSessionId: ctx.sessionId,
+			parentEventIds: [evidenceEvent.eventId, completed.eventId, item.prompt.claimEventId, item.prompt.dueEventId],
+			sourceKeySuffix: `syscall:${ctx.toolCallId ?? evidenceEvent.eventId}`,
+			reason,
+		});
+		appendAkashaCallbackInboxStatus(ctx.agentDir, item.prompt, {
+			status: "consumed",
+			eventId: inboxEvent.eventId,
+			consumerSessionId: ctx.sessionId,
+			reason,
+		});
+	}
 }

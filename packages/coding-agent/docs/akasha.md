@@ -189,6 +189,8 @@ This gives Akasha a local handoff point for future agent resume flows without re
 
 `akasha inbox run` prints actionable callback prompts and records `callback.inbox.injected`. The built-in Akasha context hook also injects actionable inbox items as hidden `<akasha_pending_callbacks>` context on the next model turn and records the same lifecycle event. After the callback has been handled, use `akasha inbox consume <id|all>` to append `callback.inbox.consumed`.
 
+M41 adds automatic resume closure: `akasha_resolve_commitment` and `akasha_check_prediction` accept `callbackId` and `inboxItemId`. When either syscall resolves a pending callback, Akasha appends `time.callback.completed`, `callback.inbox.consumed`, and the inbox status record automatically. Manual `akasha inbox consume` remains available for operator cleanup.
+
 `/akasha doctor` reports event counts, schema issues, retention pressure, and projection cache freshness.
 
 Akasha projections apply governance before injecting hidden context. Suppressed events hide their causal descendants and supported derived facts; redacted source events remain visible only in redacted form, while derived facts sourced from them are omitted from projections.
@@ -207,6 +209,8 @@ akasha_check_prediction
 ```
 
 These tools write first-class `promise.*` and `prediction.*` events with source metadata. Natural-language extraction remains as a fallback, but assistant responses that call an Akasha syscall tool do not also create duplicate heuristic commitments.
+
+When handling `<akasha_pending_callbacks>`, close the loop through a syscall rather than natural language. Pass the provided `callbackId` or `inboxItemId` to `akasha_resolve_commitment` or `akasha_check_prediction` so the callback and inbox lifecycle can complete automatically.
 
 When the assistant expresses future responsibility without a syscall, Akasha records `time_syscall.missing` in soft audit mode and parents the heuristic fallback commitment/prediction to that audit event. When an assistant response uses a syscall tool, Akasha records a satisfied `time_syscall.audit`.
 

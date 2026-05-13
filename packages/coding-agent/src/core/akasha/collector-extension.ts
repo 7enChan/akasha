@@ -298,6 +298,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 				correlationId: currentTurnEventId,
 				toolCallId,
 				sourceKeyPrefix: `akasha-syscall:${sessionId ?? ctx.sessionManager.getSessionId()}`,
+				agentDir: options.agentDir,
 			};
 		};
 
@@ -327,6 +328,9 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			label: "akasha resolve commitment",
 			description: "Resolve an existing Akasha commitment with optional evidence.",
 			promptSnippet: "Resolve tracked Akasha commitments with akasha_resolve_commitment.",
+			promptGuidelines: [
+				"When resolving a pending callback, include callbackId or inboxItemId so Akasha can consume the inbox item and complete the callback.",
+			],
 			parameters: resolveCommitmentSchema,
 			execute: async (toolCallId, params, _signal, _onUpdate, ctx) =>
 				eventToolResult(appendAkashaCommitmentResolution(syscallContext(ctx, toolCallId), params)),
@@ -352,6 +356,9 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			label: "akasha check prediction",
 			description: "Check or correct an Akasha prediction with the observed actual outcome.",
 			promptSnippet: "Check tracked Akasha predictions with akasha_check_prediction.",
+			promptGuidelines: [
+				"When checking a pending callback, include callbackId or inboxItemId so Akasha can consume the inbox item and complete the callback.",
+			],
 			parameters: checkPredictionSchema,
 			execute: async (toolCallId, params, _signal, _onUpdate, ctx) =>
 				eventToolResult(appendAkashaPredictionCheck(syscallContext(ctx, toolCallId), params)),
@@ -807,7 +814,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 						`   inboxItemId: ${item.prompt.id}`,
 						`   callbackId: ${item.prompt.callbackId}`,
 						item.prompt.targetEventId ? `   targetEventId: ${item.prompt.targetEventId}` : undefined,
-						"   obligation: Review the causal chain, act only if still relevant, then complete, cancel, or update the callback.",
+						"   obligation: Review the causal chain, act only if still relevant, then close the loop with akasha_resolve_commitment or akasha_check_prediction using this callbackId or inboxItemId.",
 					]
 						.filter((line): line is string => Boolean(line))
 						.join("\n"),

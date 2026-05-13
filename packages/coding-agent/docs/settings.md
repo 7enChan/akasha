@@ -142,6 +142,8 @@ Use `akasha init --global` to write the preset to global settings instead of the
 
 Useful inspection commands include `/akasha timeline [n]` for the current session, `/akasha project-timeline [n]` for all sessions in the current project `cwd`, `/akasha user-timeline` for user-level memory, `/akasha action-gate` for the pre-action control brief, `/akasha queue` for due callbacks, `/akasha callback-complete <callbackId> [evidenceEventId]` and `/akasha callback-cancel <callbackId> [reason]` for callback lifecycle, `/akasha maintain [session|project|all]` for detached maintenance, `/akasha memory-review` plus `/akasha memory-pin|memory-unpin|memory-suppress <eventId>` for memory governance, `/akasha redact <eventId> <field> [reason]` for append-only redaction, `/akasha project-state project` for cross-session project state, `/akasha scheduler` for a manual Karma/scheduler pass, and `/akasha doctor` for schema, redaction, and retention diagnostics.
 
+Callback resume closure is syscall-driven. `akasha_resolve_commitment` and `akasha_check_prediction` both accept optional `callbackId` and `inboxItemId`; when supplied, Akasha automatically appends `time.callback.completed` and `callback.inbox.consumed`.
+
 ```json
 {
   "akasha": {
