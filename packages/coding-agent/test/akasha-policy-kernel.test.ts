@@ -89,4 +89,50 @@ describe("Akasha policy kernel", () => {
 			},
 		});
 	});
+
+	it("blocks stale ephemeral state when it is also marked current", () => {
+		const decision = evaluateAkashaPolicy({
+			actionType: "context_injection",
+			payload: {
+				currentStateIds: ["state-1"],
+				staleEphemeralStateIds: ["state-1"],
+			},
+			rules: [
+				{
+					id: "block_stale_ephemeral_state_as_current",
+					description: "Block stale current facts",
+					severity: "critical",
+				},
+			],
+		});
+
+		expect(decision).toMatchObject({
+			action: "block",
+			ruleId: "block_stale_ephemeral_state_as_current",
+			evidenceEventIds: ["state-1"],
+		});
+	});
+
+	it("requires currentness checks for stale health states when no check is injected", () => {
+		const decision = evaluateAkashaPolicy({
+			actionType: "context_injection",
+			payload: {
+				staleHealthStateIds: ["state-health"],
+				currentnessCheckCount: 0,
+			},
+			rules: [
+				{
+					id: "require_currentness_check_for_health_state",
+					description: "Require health currentness checks",
+					severity: "warning",
+				},
+			],
+		});
+
+		expect(decision).toMatchObject({
+			action: "require_validation",
+			ruleId: "require_currentness_check_for_health_state",
+			evidenceEventIds: ["state-health"],
+		});
+	});
 });

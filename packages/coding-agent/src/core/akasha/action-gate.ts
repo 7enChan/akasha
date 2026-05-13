@@ -3,6 +3,11 @@ import { type AkashaReconstructedMemoryField, formatAkashaHolographicMemoryConte
 import { buildKarmaLedger } from "./karma-ledger.js";
 import { buildOpenLoopLedger } from "./open-loops.js";
 import type { AkashaProjectTimeline } from "./project-timeline.js";
+import {
+	type AkashaTemporalStateLedger,
+	buildAkashaTemporalStateLedger,
+	formatAkashaTemporalValidityContext,
+} from "./temporal-state-ledger.js";
 import type { AkashaEvent } from "./types.js";
 import type { AkashaUserTimeline } from "./user-timeline.js";
 import { buildProjectState } from "./world-model.js";
@@ -13,6 +18,7 @@ export interface AkashaActionGateOptions {
 	userTimeline?: AkashaUserTimeline;
 	holographicMemory?: AkashaReconstructedMemoryField;
 	maxItems?: number;
+	now?: string | Date;
 }
 
 export interface AkashaActionGateContext {
@@ -20,6 +26,15 @@ export interface AkashaActionGateContext {
 	eventIds: string[];
 	sections: string[];
 	tokenEstimate: number;
+	temporalValidity?: AkashaActionGateTemporalValiditySummary;
+}
+
+export interface AkashaActionGateTemporalValiditySummary {
+	currentStateIds: string[];
+	staleStateIds: string[];
+	staleEphemeralStateIds: string[];
+	staleHealthStateIds: string[];
+	currentnessCheckCount: number;
 }
 
 export function buildAkashaActionGateContext(options: AkashaActionGateOptions): AkashaActionGateContext | undefined {
@@ -34,6 +49,7 @@ export function buildAkashaActionGateContext(options: AkashaActionGateOptions): 
 	const collaborationHints = options.userTimeline?.collaborationHints.slice(0, maxItems) ?? [];
 	const corrections = options.userTimeline?.corrections.slice(0, maxItems) ?? [];
 	const holographicMemory = options.holographicMemory;
+	const temporalValidity = buildAkashaTemporalStateLedger(projectEvents, { now: options.now });
 	const eventIds = new Set<string>();
 	const sections = new Set<string>();
 
@@ -128,6 +144,23 @@ export function buildAkashaActionGateContext(options: AkashaActionGateOptions): 
 		}
 	}
 
+	const validityContext = formatAkashaTemporalValidityContext(temporalValidity, { maxItems });
+	if (validityContext) {
+		hasFacts = true;
+		sections.add("temporal_validity");
+		lines.push(validityContext);
+		for (const state of [
+			...temporalValidity.current,
+			...temporalValidity.stale,
+			...temporalValidity.expired,
+			...temporalValidity.currentnessChecks,
+		].slice(0, maxItems * 2)) {
+			eventIds.add(state.latestEventId);
+			eventIds.add(state.observedEventId);
+			for (const sourceEventId of state.sourceEventIds.slice(0, 4)) eventIds.add(sourceEventId);
+		}
+	}
+
 	if (holographicMemory && hasHolographicMemory(holographicMemory)) {
 		hasFacts = true;
 		sections.add("holographic_memory");
@@ -147,6 +180,31 @@ export function buildAkashaActionGateContext(options: AkashaActionGateOptions): 
 		eventIds: [...eventIds],
 		sections: [...sections],
 		tokenEstimate: estimateTokens(lines.join("\n")),
+		temporalValidity: summarizeTemporalValidity(temporalValidity),
+	};
+}
+
+function summarizeTemporalValidity(ledger: AkashaTemporalStateLedger): AkashaActionGateTemporalValiditySummary {
+	const staleStates = [...ledger.stale, ...ledger.expired];
+	return {
+		currentStateIds: ledger.current.map((state) => state.stateId),
+		staleStateIds: staleStates.map((state) => state.stateId),
+		staleEphemeralStateIds: staleStates
+			.filter((state) =>
+				[
+					"health_state",
+					"mood_state",
+					"location_state",
+					"availability_state",
+					"ephemeral_observation",
+					"external_world_fact",
+				].includes(state.stateClass),
+			)
+			.map((state) => state.stateId),
+		staleHealthStateIds: staleStates
+			.filter((state) => state.stateClass === "health_state")
+			.map((state) => state.stateId),
+		currentnessCheckCount: ledger.currentnessChecks.length,
 	};
 }
 

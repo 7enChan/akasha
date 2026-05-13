@@ -42,6 +42,7 @@ import type { AkashaTaskModel } from "./task-model.js";
 import { buildAkashaTaskModel } from "./task-model.js";
 import type { AkashaOpenLoopCandidate, AkashaTemporalState } from "./temporal-state.js";
 import { buildTemporalState } from "./temporal-state.js";
+import { buildAkashaTemporalStateLedger, summarizeAkashaTemporalStateLedger } from "./temporal-state-ledger.js";
 import type { AkashaEvent, AkashaStore } from "./types.js";
 import type { AkashaUserTimeline } from "./user-timeline.js";
 import { buildAkashaUserTimeline, summarizeUserTimeline } from "./user-timeline.js";
@@ -61,7 +62,7 @@ export function registerAkashaCommands(
 ): void {
 	akasha.registerCommand("akasha", {
 		description:
-			"Inspect Akasha time events: /akasha status | init [global] | enable [global] | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | daemon [status|tick|run] | cache [status|clear|rebuild] | sleep [status|run] | callback-complete <callbackId> [evidenceEventId] | callback-cancel <callbackId> [reason] | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
+			"Inspect Akasha time events: /akasha status | init [global] | enable [global] | timeline [n] | project-timeline [n] | user-timeline | action-gate | states [session] | validity [session] | queue | daemon [status|tick|run] | cache [status|clear|rebuild] | sleep [status|run] | callback-complete <callbackId> [evidenceEventId] | callback-cancel <callbackId> [reason] | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
 		getArgumentCompletions: (prefix) => {
 			const commands = [
 				"status",
@@ -71,6 +72,8 @@ export function registerAkashaCommands(
 				"project-timeline",
 				"user-timeline",
 				"action-gate",
+				"states",
+				"validity",
 				"queue",
 				"daemon",
 				"cache",
@@ -196,6 +199,20 @@ export function registerAkashaCommands(
 					userTimeline,
 				});
 				ctx.ui.notify(gate?.text ?? "No Akasha action gate context is currently due.", "info");
+				return;
+			}
+
+			if (subcommand === "states" || subcommand === "validity") {
+				const events =
+					options && rest[0] !== "session"
+						? buildAkashaProjectTimeline({
+								agentDir: options.agentDir,
+								eventLogDir: options.eventLogDir,
+								cwd: ctx.cwd,
+								limit: 1000,
+							}).events
+						: store.buildTimeline({ limit: 1000 });
+				ctx.ui.notify(summarizeAkashaTemporalStateLedger(buildAkashaTemporalStateLedger(events)), "info");
 				return;
 			}
 
@@ -557,7 +574,7 @@ export function registerAkashaCommands(
 			}
 
 			ctx.ui.notify(
-				"Usage: /akasha status | init [global] | enable [global] | timeline [n] | project-timeline [n] | user-timeline | action-gate | queue | daemon [status|tick|run] | cache [status|clear|rebuild] | sleep [status|run] | callback-complete <callbackId> [evidenceEventId] | callback-cancel <callbackId> [reason] | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
+				"Usage: /akasha status | init [global] | enable [global] | timeline [n] | project-timeline [n] | user-timeline | action-gate | states [session] | validity [session] | queue | daemon [status|tick|run] | cache [status|clear|rebuild] | sleep [status|run] | callback-complete <callbackId> [evidenceEventId] | callback-cancel <callbackId> [reason] | maintain [session|project|all] | memory-review | memory-pin <eventId> | memory-unpin <eventId> | memory-suppress <eventId> | redact <eventId> <field> [reason] | why <eventId|toolCallId> | explain-current | open-loops | project-state [project] | task-model | karma | scheduler | governance | doctor",
 				"warning",
 			);
 		},

@@ -3,6 +3,8 @@ import type { AkashaMemoryCue } from "./memory-cue.js";
 import { type AkashaMemoryTraceScore, rankAkashaMemoryTraces } from "./memory-resonance.js";
 import type { AkashaMemoryTrace } from "./memory-trace.js";
 import { type AkashaProcedure, buildAkashaProceduralMemories, formatAkashaProcedures } from "./procedural-memory.js";
+import { buildAkashaTemporalStateLedger } from "./temporal-state-ledger.js";
+import type { AkashaTemporalStateClass, AkashaTemporalStateStatus } from "./temporal-validity.js";
 import type { AkashaEvent } from "./types.js";
 
 export interface AkashaMemoryEpisode {
@@ -44,6 +46,16 @@ export interface AkashaMemorySuggestedAction {
 	confidence: number;
 }
 
+export interface AkashaMemoryValidityAnnotation {
+	stateId: string;
+	stateClass: AkashaTemporalStateClass;
+	status: AkashaTemporalStateStatus | "historical";
+	summary: string;
+	eventIds: string[];
+	reason: string;
+	useAs: "current_fact" | "historical_context" | "requires_currentness_check";
+}
+
 export interface AkashaReconstructedMemoryField {
 	fieldId: string;
 	cue: AkashaMemoryCue;
@@ -56,6 +68,7 @@ export interface AkashaReconstructedMemoryField {
 	procedures: AkashaProcedure[];
 	warnings: AkashaMemoryWarning[];
 	suggestedActions: AkashaMemorySuggestedAction[];
+	validityAnnotations: AkashaMemoryValidityAnnotation[];
 	tokenEstimate: number;
 	sourceEventIds: string[];
 	topReasons: string[];
@@ -100,6 +113,11 @@ export function reconstructAkashaMemoryField(input: {
 	const warnings = buildWarnings(ranked).slice(0, options.maxWarnings ?? 3);
 	const patterns = buildPatterns(ranked).slice(0, 3);
 	const suggestedActions = buildSuggestedActions(procedures, warnings).slice(0, 3);
+	const validityAnnotations = buildValidityAnnotations(
+		input.events,
+		[...recalledEventIds, ...sourceEventIds],
+		options.now,
+	);
 	const recalledCrystalIds = uniqueStrings(
 		recalledEventIds.filter((eventId) => {
 			const kind = eventsById.get(eventId)?.kind;
@@ -118,6 +136,7 @@ export function reconstructAkashaMemoryField(input: {
 		procedures,
 		warnings,
 		suggestedActions,
+		validityAnnotations,
 		tokenEstimate: 0,
 		sourceEventIds,
 		topReasons: topReasons(ranked),
@@ -130,6 +149,7 @@ export function reconstructAkashaMemoryField(input: {
 		lessons: lessons.map((lesson) => lesson.lessonId),
 		procedures: procedures.map((procedure) => procedure.procedureId),
 		warnings: warnings.map((warning) => warning.warningId),
+		validityAnnotations: validityAnnotations.map((annotation) => `${annotation.stateId}:${annotation.status}`),
 	};
 	return {
 		fieldId: `field_${hashJson(fieldWithoutId).slice(0, 24)}`,
@@ -143,6 +163,7 @@ export function reconstructAkashaMemoryField(input: {
 		procedures,
 		warnings,
 		suggestedActions,
+		validityAnnotations,
 		tokenEstimate: estimateTokens(text),
 		sourceEventIds,
 		topReasons: topReasons(ranked),
@@ -171,6 +192,15 @@ export function formatAkashaHolographicMemoryContext(field: AkashaReconstructedM
 		for (const warning of field.warnings) lines.push(`- [${warning.severity}] ${warning.text}`);
 		lines.push("</warnings>");
 	}
+	if (field.validityAnnotations.length > 0) {
+		lines.push("<validity_annotations>");
+		for (const annotation of field.validityAnnotations) {
+			lines.push(
+				`- ${annotation.stateClass}: ${annotation.summary} => ${annotation.status}; use_as=${annotation.useAs}; ${annotation.reason}`,
+			);
+		}
+		lines.push("</validity_annotations>");
+	}
 	if (field.suggestedActions.length > 0) {
 		lines.push("<suggested_actions>");
 		for (const action of field.suggestedActions) lines.push(`- ${action.text}`);
@@ -178,6 +208,39 @@ export function formatAkashaHolographicMemoryContext(field: AkashaReconstructedM
 	}
 	lines.push("</akasha_holographic_memory>");
 	return lines.join("\n");
+}
+
+function buildValidityAnnotations(
+	events: AkashaEvent[],
+	recalledIds: string[],
+	now?: Date,
+): AkashaMemoryValidityAnnotation[] {
+	const recalled = new Set(recalledIds);
+	const ledger = buildAkashaTemporalStateLedger(events, { now });
+	const annotations: AkashaMemoryValidityAnnotation[] = [];
+	for (const state of ledger.states) {
+		const relatedIds = [state.observedEventId, state.latestEventId, ...state.sourceEventIds];
+		if (!relatedIds.some((eventId) => recalled.has(eventId))) continue;
+		const requiresCheck = state.status === "stale" || state.status === "expired";
+		annotations.push({
+			stateId: state.stateId,
+			stateClass: state.stateClass,
+			status: state.status,
+			summary: state.summary,
+			eventIds: uniqueStrings(relatedIds),
+			reason: requiresCheck
+				? "State was recalled, but its validity window has passed; do not treat it as current without confirmation."
+				: state.status === "resolved"
+					? "State was recalled as resolved historical context."
+					: "State was recalled within its validity window.",
+			useAs: requiresCheck
+				? "requires_currentness_check"
+				: state.status === "current"
+					? "current_fact"
+					: "historical_context",
+		});
+	}
+	return annotations.slice(0, 6);
 }
 
 function buildEpisodes(ranked: AkashaMemoryTraceScore[], eventsById: Map<string, AkashaEvent>): AkashaMemoryEpisode[] {

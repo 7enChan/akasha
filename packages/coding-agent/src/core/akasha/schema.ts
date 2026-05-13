@@ -78,6 +78,12 @@ export const KNOWN_AKASHA_EVENT_KINDS = new Set<AkashaEventKind>([
 	"skill.procedure.applied",
 	"skill.procedure.failed",
 	"skill.procedure.reinforced",
+	"state.observed",
+	"state.confirmed",
+	"state.resolved",
+	"state.superseded",
+	"state.stale",
+	"state.expired",
 	"gateway.started",
 	"gateway.stopped",
 	"gateway.update.received",
@@ -328,6 +334,27 @@ function validatePayloadShape(event: AkashaEvent, issues: AkashaSchemaIssue[]): 
 		requireStringPayload(event, issues, "procedureId");
 		requireStringPayload(event, issues, "appliedEventId");
 		requireStringPayload(event, issues, "outcomeEventId");
+	}
+	if (
+		event.kind === "state.observed" ||
+		event.kind === "state.confirmed" ||
+		event.kind === "state.resolved" ||
+		event.kind === "state.superseded" ||
+		event.kind === "state.stale" ||
+		event.kind === "state.expired"
+	) {
+		requireStringPayload(event, issues, "stateId");
+		requireStringPayload(event, issues, "stateClass");
+		requireStringPayload(event, issues, "summary");
+		requireStringArrayPayload(event, issues, "sourceEventIds");
+	}
+	if (event.kind === "state.observed" || event.kind === "state.confirmed") {
+		requireStringPayload(event, issues, "stateKey");
+		requireStringPayload(event, issues, "validFrom");
+		const validUntil = event.payload.validUntil;
+		if (validUntil !== undefined && typeof validUntil !== "string") {
+			issues.push(issue(event.eventId, "invalid_shape", `${event.kind} payload.validUntil must be a string`));
+		}
 	}
 }
 

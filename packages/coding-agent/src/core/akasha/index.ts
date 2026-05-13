@@ -75,6 +75,11 @@ export type {
 	AkashaEmbeddingTombstone,
 } from "./embedding-store.js";
 export { InMemoryAkashaEmbeddingStore, JsonlAkashaEmbeddingStore } from "./embedding-store.js";
+export type { AkashaDetectedEphemeralState } from "./ephemeral-state-detector.js";
+export {
+	deriveAkashaEphemeralStateEventsFromUserMessage,
+	detectAkashaEphemeralStates,
+} from "./ephemeral-state-detector.js";
 export type { AkashaExportFormat, AkashaExportOptions } from "./event-export.js";
 export { exportAkashaEvents, importAkashaEvents } from "./event-export.js";
 export type { AkashaGovernanceProjection } from "./governance-projection.js";
@@ -86,6 +91,7 @@ export type {
 	AkashaMemoryLesson,
 	AkashaMemoryPattern,
 	AkashaMemorySuggestedAction,
+	AkashaMemoryValidityAnnotation,
 	AkashaMemoryWarning,
 	AkashaReconstructedMemoryField,
 } from "./holographic-memory.js";
@@ -294,6 +300,31 @@ export type {
 	AkashaTemporalState,
 } from "./temporal-state.js";
 export { buildTemporalState } from "./temporal-state.js";
+export type {
+	AkashaTemporalStateLedger,
+	AkashaTemporalStateRecord,
+} from "./temporal-state-ledger.js";
+export {
+	buildAkashaTemporalStateLedger,
+	formatAkashaTemporalValidityContext,
+	summarizeAkashaTemporalStateLedger,
+} from "./temporal-state-ledger.js";
+export type {
+	AkashaTemporalStateClass,
+	AkashaTemporalStateStatus,
+	AkashaTemporalValidityWindow,
+} from "./temporal-validity.js";
+export {
+	akashaTemporalValidityWindow,
+	computeAkashaExpiresAt,
+	computeAkashaTemporalStateStatus,
+	computeAkashaValidUntil,
+	createAkashaTemporalStateId,
+	DEFAULT_AKASHA_TEMPORAL_VALIDITY,
+	formatAkashaStateAge,
+	isAkashaEphemeralStateClass,
+	normalizeAkashaTemporalStateKey,
+} from "./temporal-validity.js";
 export type { AkashaTimeSyscallAuditResult } from "./time-syscall-audit.js";
 export {
 	auditAkashaTimeSyscalls,

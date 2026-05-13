@@ -251,6 +251,23 @@ M46 adds the first Holographic Memory Layer primitive: memory traces. Traces are
 
 M47-M50 turn traces into a cue-driven memory cortex. The current user text, cwd, active artifacts, pending callbacks, recent failures, policy pressure, and strict protocol gaps form an `AkashaMemoryCue`. Akasha scores traces by resonance, reconstructs a compact memory field, and can inject it into Action Gate as `<akasha_holographic_memory>`. When injected, Akasha writes `memory.recalled`; tool calls following the recall write `memory.applied`, and tool outcomes write `memory.reinforced` or `memory.weakened`.
 
+M53 adds Temporal Validity for ephemeral states. Short-lived user states such as health, mood, location, and availability are projected as `state.observed` / `state.confirmed` / `state.resolved` events. The event log keeps the historical fact, while the temporal-state ledger computes whether that state is still current, stale, expired, or resolved. Stale does not mean false or forgotten; it means Akasha must treat the memory as historical context and ask a currentness question before relying on it.
+
+Action Gate can now include:
+
+```xml
+<akasha_temporal_validity>
+  <stale_state>
+    ...
+  </stale_state>
+  <currentness_checks>
+    ...
+  </currentness_checks>
+</akasha_temporal_validity>
+```
+
+For example, if the user said "我肚子疼" three days ago, Akasha can recall that history but should not assume it is still true. It should first confirm whether the symptom is still present. Inspect the current projection with `/akasha states` or `/akasha validity`.
+
 Sleep replay is the offline consolidation path:
 
 ```bash

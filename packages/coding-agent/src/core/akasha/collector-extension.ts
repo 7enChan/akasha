@@ -26,6 +26,7 @@ import {
 import { registerAkashaCommands } from "./commands.js";
 import { createAkashaEmbeddingProvider } from "./embedding-provider.js";
 import { JsonlAkashaEmbeddingStore } from "./embedding-store.js";
+import { deriveAkashaEphemeralStateEventsFromUserMessage } from "./ephemeral-state-detector.js";
 import type { AkashaHeartbeatController } from "./heartbeat.js";
 import { createAkashaHeartbeat } from "./heartbeat.js";
 import { JsonlAkashaStore } from "./jsonl-store.js";
@@ -527,6 +528,12 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			const recorded = append(mapped);
 			if (recorded && event.message.role === "user") {
 				latestUserEventId = recorded.eventId;
+				for (const draft of deriveAkashaEphemeralStateEventsFromUserMessage(
+					recorded,
+					store?.buildTimeline({ limit: 500 }) ?? [recorded],
+				)) {
+					append(draft);
+				}
 				appendReconsolidationCandidates();
 			}
 			if (recorded && event.message.role === "assistant") {

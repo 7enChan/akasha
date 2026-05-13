@@ -101,6 +101,21 @@ export const DEFAULT_AKASHA_RUNTIME_POLICY_RULES: AkashaPolicyRule[] = [
 		description: "Time syscalls must identify their source event when running under strict protocol.",
 		severity: "warning",
 	},
+	{
+		id: "block_stale_ephemeral_state_as_current",
+		description: "Stale ephemeral states may be recalled as history, but must not be injected as current facts.",
+		severity: "critical",
+	},
+	{
+		id: "require_currentness_check_for_stale_state",
+		description: "Stale ephemeral states require an explicit currentness check before being used.",
+		severity: "warning",
+	},
+	{
+		id: "require_currentness_check_for_health_state",
+		description: "Stale health states require a currentness and safety check before health-related reasoning.",
+		severity: "warning",
+	},
 ];
 
 export const AUTONOMOUS_AKASHA_RUNTIME_POLICY_RULES: AkashaPolicyRule[] = [
@@ -280,6 +295,46 @@ function evaluateRule(input: AkashaPolicyEvaluationInput, rule: AkashaPolicyRule
 		const sourceEventIds = stringArrayPayload(input, "sourceEventIds");
 		if (input.payload?.strict === true && sourceEventIds.length === 0) {
 			return decision("block", rule, "Akasha strict protocol requires time syscalls to include sourceEventIds.", []);
+		}
+	}
+
+	if (rule.id === "block_stale_ephemeral_state_as_current" && input.actionType === "context_injection") {
+		const currentStateIds = stringArrayPayload(input, "currentStateIds");
+		const staleEphemeralStateIds = stringArrayPayload(input, "staleEphemeralStateIds");
+		const overlap = currentStateIds.filter((stateId) => staleEphemeralStateIds.includes(stateId));
+		if (overlap.length > 0) {
+			return decision(
+				"block",
+				rule,
+				"Akasha blocked stale ephemeral state from being injected as a current fact.",
+				overlap,
+			);
+		}
+	}
+
+	if (rule.id === "require_currentness_check_for_stale_state" && input.actionType === "context_injection") {
+		const staleEphemeralStateIds = stringArrayPayload(input, "staleEphemeralStateIds");
+		const currentnessCheckCount = numberPayload(input, "currentnessCheckCount") ?? 0;
+		if (staleEphemeralStateIds.length > 0 && currentnessCheckCount === 0) {
+			return decision(
+				"require_validation",
+				rule,
+				"Akasha requires a currentness check before using stale ephemeral state.",
+				staleEphemeralStateIds,
+			);
+		}
+	}
+
+	if (rule.id === "require_currentness_check_for_health_state" && input.actionType === "context_injection") {
+		const staleHealthStateIds = stringArrayPayload(input, "staleHealthStateIds");
+		const currentnessCheckCount = numberPayload(input, "currentnessCheckCount") ?? 0;
+		if (staleHealthStateIds.length > 0 && currentnessCheckCount === 0) {
+			return decision(
+				"require_validation",
+				rule,
+				"Akasha requires a currentness and safety check before relying on stale health state.",
+				staleHealthStateIds,
+			);
 		}
 	}
 

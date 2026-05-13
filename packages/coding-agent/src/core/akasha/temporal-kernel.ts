@@ -195,6 +195,7 @@ export class AkashaTemporalKernel {
 			userTimeline,
 			holographicMemory: memoryField,
 			maxItems: options.settings.maxItems,
+			now: options.eventTime,
 		});
 		if (!gate) return {};
 		const policy = this.evaluateRuntimePolicy({
@@ -207,6 +208,11 @@ export class AkashaTemporalKernel {
 					sections: gate.sections,
 					tokenEstimate: gate.tokenEstimate,
 					maxTokenEstimate: MAX_ACTION_GATE_TOKEN_ESTIMATE,
+					currentStateIds: gate.temporalValidity?.currentStateIds ?? [],
+					staleStateIds: gate.temporalValidity?.staleStateIds ?? [],
+					staleEphemeralStateIds: gate.temporalValidity?.staleEphemeralStateIds ?? [],
+					staleHealthStateIds: gate.temporalValidity?.staleHealthStateIds ?? [],
+					currentnessCheckCount: gate.temporalValidity?.currentnessCheckCount ?? 0,
 				},
 			},
 			parentEventIds: [memoryRecallPolicy?.event.eventId, ...(options.parentEventIds ?? [])].filter(
@@ -260,6 +266,7 @@ export class AkashaTemporalKernel {
 				eventIds: gate.eventIds,
 				sections: gate.sections,
 				tokenEstimate: gate.tokenEstimate,
+				temporalValidity: gate.temporalValidity,
 			},
 			importance: 0.65,
 			ttlPolicy: "long_term",
@@ -317,6 +324,7 @@ export class AkashaTemporalKernel {
 				maxLessons: settings.maxLessons,
 				maxProcedures: settings.maxProcedures,
 				maxWarnings: settings.maxWarnings,
+				now: input.eventTime ? new Date(input.eventTime) : undefined,
 			},
 		});
 		if (
