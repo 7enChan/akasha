@@ -4,6 +4,7 @@ import { extname, join } from "node:path";
 import type { AkashaGatewayLogger } from "./logger.js";
 import { TelegramApiError, type TelegramClient, type TelegramMessage, type TelegramUpdate } from "./telegram-client.js";
 import type {
+	AkashaGatewayBotProfile,
 	AkashaGatewayCommandMenuItem,
 	AkashaGatewayConfig,
 	AkashaGatewayDeliveryReceipt,
@@ -56,6 +57,11 @@ export class TelegramGatewayAdapter {
 
 	async setCommands(commands: AkashaGatewayCommandMenuItem[]): Promise<void> {
 		await this.options.client.setMyCommands(commands);
+	}
+
+	async setBotProfile(profile: AkashaGatewayBotProfile): Promise<void> {
+		await this.options.client.setMyDescription(profile.description);
+		await this.options.client.setMyShortDescription(profile.shortDescription);
 	}
 
 	async sendMedia(chatId: string, filePath: string, caption?: string): Promise<AkashaGatewayDeliveryReceipt> {

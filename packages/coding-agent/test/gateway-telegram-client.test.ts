@@ -54,6 +54,26 @@ describe("TelegramClient", () => {
 		});
 	});
 
+	it("updates Telegram bot profile descriptions", async () => {
+		const calls: Array<{ url: string; body: unknown }> = [];
+		const client = new TelegramClient({
+			token: "token",
+			fetchImpl: fakeFetch(calls, { ok: true, result: true }),
+		});
+
+		await client.setMyDescription("Akasha: Knowing. Doing. Being.");
+		await client.setMyShortDescription("Akasha: Knowing. Doing. Being.");
+
+		expect(calls[0]).toEqual({
+			url: "https://api.telegram.org/bottoken/setMyDescription",
+			body: { description: "Akasha: Knowing. Doing. Being." },
+		});
+		expect(calls[1]).toEqual({
+			url: "https://api.telegram.org/bottoken/setMyShortDescription",
+			body: { short_description: "Akasha: Knowing. Doing. Being." },
+		});
+	});
+
 	it("surfaces Telegram retry_after as an API error", async () => {
 		const client = new TelegramClient({
 			token: "token",

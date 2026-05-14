@@ -55,6 +55,9 @@ export const AKASHA_TELEGRAM_MENU_COMMANDS: AkashaGatewayCommandMenuItem[] = [
 	{ command: "timeline", description: "Show recent Akasha time events" },
 ];
 
+const AKASHA_START_MESSAGE = "Akasha is awake.\nKnowing. Doing. Being.";
+const AKASHA_BOT_PROFILE_DESCRIPTION = "Akasha: Knowing. Doing. Being.";
+
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
 type GatewayThinkingLevel = (typeof THINKING_LEVELS)[number];
 
@@ -117,6 +120,7 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 		this.lock.acquire();
 		this.writeRuntimeStatus("starting", "starting");
 		await this.registerCommandMenu();
+		await this.registerBotProfile();
 		this.events.appendGateway("telegram", {
 			kind: "gateway.started",
 			subjectId: "akasha.gateway",
@@ -311,11 +315,7 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 			importance: 0.65,
 		});
 		if (command.name === "start") {
-			await this.sendGatewayText(
-				chat,
-				"Akasha gateway is online. Use /status, /new, /setcwd <path>, or send a task.",
-				`${messageKey}:command:start`,
-			);
+			await this.sendGatewayText(chat, AKASHA_START_MESSAGE, `${messageKey}:command:start`);
 			return;
 		}
 		if (command.name === "status") {
@@ -608,6 +608,18 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 			await this.adapter.setCommands(AKASHA_TELEGRAM_MENU_COMMANDS);
 		} catch (error) {
 			this.logger.warn(`Telegram command menu registration failed: ${errorMessage(error)}`);
+		}
+	}
+
+	private async registerBotProfile(): Promise<void> {
+		if (!this.adapter.setBotProfile) return;
+		try {
+			await this.adapter.setBotProfile({
+				description: AKASHA_BOT_PROFILE_DESCRIPTION,
+				shortDescription: AKASHA_BOT_PROFILE_DESCRIPTION,
+			});
+		} catch (error) {
+			this.logger.warn(`Telegram bot profile sync failed: ${errorMessage(error)}`);
 		}
 	}
 

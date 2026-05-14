@@ -45,6 +45,28 @@ describe("AkashaGatewayRunner", () => {
 			"stop",
 			"timeline",
 		]);
+		expect(adapter.botProfile).toEqual({
+			description: "Akasha: Knowing. Doing. Being.",
+			shortDescription: "Akasha: Knowing. Doing. Being.",
+		});
+	});
+
+	it("answers /start with Akasha wake message", async () => {
+		const adapter = new FakeAdapter();
+		const runner = createRunner({ adapter });
+
+		await runner.handle({
+			platform: "telegram",
+			chatId: "1",
+			messageId: "start-command",
+			userId: 123,
+			text: "/start",
+			receivedTime: "2026-05-12T00:00:00.000Z",
+		});
+
+		expect(adapter.sent.at(-1)?.text).toBe("Akasha is awake.\nKnowing. Doing. Being.");
+		expect(adapter.sent.at(-1)?.text).not.toContain("gateway");
+		expect(adapter.sent.at(-1)?.text).not.toContain("/setcwd");
 	});
 
 	it("rejects Telegram users outside the allowlist and writes a gateway event", async () => {
@@ -447,6 +469,7 @@ class FakeAdapter implements AkashaGatewayPlatformAdapter {
 	readonly sent: AkashaGatewayOutgoingMessage[] = [];
 	readonly chatActions: Array<{ chatId: string; action: "typing" }> = [];
 	readonly commands: Array<{ command: string; description: string }> = [];
+	botProfile: { description: string; shortDescription: string } | undefined;
 
 	async start(): Promise<void> {}
 	async stop(): Promise<void> {}
@@ -459,6 +482,9 @@ class FakeAdapter implements AkashaGatewayPlatformAdapter {
 	}
 	async setCommands(commands: Array<{ command: string; description: string }>): Promise<void> {
 		this.commands.push(...commands);
+	}
+	async setBotProfile(profile: { description: string; shortDescription: string }): Promise<void> {
+		this.botProfile = profile;
 	}
 }
 

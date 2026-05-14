@@ -138,6 +138,18 @@ export class TelegramClient {
 		});
 	}
 
+	async setMyDescription(description: string): Promise<boolean> {
+		return this.call<boolean>("setMyDescription", {
+			description,
+		});
+	}
+
+	async setMyShortDescription(shortDescription: string): Promise<boolean> {
+		return this.call<boolean>("setMyShortDescription", {
+			short_description: shortDescription,
+		});
+	}
+
 	async setWebhook(url: string, secretToken: string): Promise<boolean> {
 		return this.call<boolean>("setWebhook", {
 			url,

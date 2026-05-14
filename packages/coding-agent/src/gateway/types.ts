@@ -76,6 +76,11 @@ export interface AkashaGatewayCommandMenuItem {
 	description: string;
 }
 
+export interface AkashaGatewayBotProfile {
+	description: string;
+	shortDescription: string;
+}
+
 export interface AkashaGatewayPlatformAdapter {
 	name: AkashaGatewayPlatform;
 	start(): Promise<void>;
@@ -83,6 +88,7 @@ export interface AkashaGatewayPlatformAdapter {
 	sendMessage(message: AkashaGatewayOutgoingMessage): Promise<AkashaGatewayDeliveryReceipt | undefined>;
 	sendChatAction?(chatId: string, action?: "typing"): Promise<void>;
 	setCommands?(commands: AkashaGatewayCommandMenuItem[]): Promise<void>;
+	setBotProfile?(profile: AkashaGatewayBotProfile): Promise<void>;
 	sendMedia?(chatId: string, filePath: string, caption?: string): Promise<AkashaGatewayDeliveryReceipt | undefined>;
 }
 

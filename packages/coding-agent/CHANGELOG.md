@@ -6,6 +6,10 @@
 
 - Added Together AI to built-in provider setup, `/login` API-key auth, and default model resolution ([#3624](https://github.com/7enChan/akasha/pull/3624) by [@Nutlope](https://github.com/Nutlope)).
 
+### Changed
+
+- Updated Telegram startup and bot profile copy to present Akasha without gateway implementation details.
+
 ### Fixed
 
 - Fixed theme sharing across package scopes so extensions do not crash with `Theme not initialized` ([#4333](https://github.com/earendil-works/akasha/issues/4333)).
