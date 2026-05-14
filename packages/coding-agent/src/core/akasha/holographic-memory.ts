@@ -1,8 +1,12 @@
 import { createHash } from "node:crypto";
 import type { AkashaMemoryCue } from "./memory-cue.js";
-import { type AkashaMemoryTraceScore, rankAkashaMemoryTraces } from "./memory-resonance.js";
+import { applyAkashaMemoryFeedbackToEdges, buildAkashaMemoryFeedback } from "./memory-feedback.js";
+import { activateAkashaMemoryField } from "./memory-field-activation.js";
+import type { AkashaMemoryTraceScore } from "./memory-resonance.js";
 import type { AkashaMemoryTrace } from "./memory-trace.js";
+import { type AkashaMemoryTraceEdge, buildAkashaMemoryTraceEdges } from "./memory-trace-edge.js";
 import { type AkashaProcedure, buildAkashaProceduralMemories, formatAkashaProcedures } from "./procedural-memory.js";
+import type { AkashaSemanticMemorySeed } from "./semantic-memory-seed.js";
 import { buildAkashaTemporalStateLedger } from "./temporal-state-ledger.js";
 import type { AkashaTemporalStateClass, AkashaTemporalStateStatus } from "./temporal-validity.js";
 import type { AkashaEvent } from "./types.js";
@@ -62,6 +66,10 @@ export interface AkashaReconstructedMemoryField {
 	recalledEventIds: string[];
 	recalledCrystalIds: string[];
 	recalledTraceIds: string[];
+	recalledEdgeIds: string[];
+	activationReasons: Record<string, string[]>;
+	semanticSeedEventIds: string[];
+	semanticSeedReasons: Record<string, string[]>;
 	episodes: AkashaMemoryEpisode[];
 	patterns: AkashaMemoryPattern[];
 	lessons: AkashaMemoryLesson[];
@@ -86,20 +94,36 @@ export interface AkashaHolographicMemoryOptions {
 export function reconstructAkashaMemoryField(input: {
 	events: AkashaEvent[];
 	traces: AkashaMemoryTrace[];
+	edges?: AkashaMemoryTraceEdge[];
 	cue: AkashaMemoryCue;
+	semanticSeeds?: AkashaSemanticMemorySeed[];
 	options?: AkashaHolographicMemoryOptions;
 }): AkashaReconstructedMemoryField {
 	const options = input.options ?? {};
-	const ranked = rankAkashaMemoryTraces(input.traces, input.cue, {
+	const semanticSeeds = input.semanticSeeds ?? [];
+	const feedback = buildAkashaMemoryFeedback(input.events);
+	const edges = applyAkashaMemoryFeedbackToEdges(
+		input.edges ?? buildAkashaMemoryTraceEdges(input.events, input.traces),
+		feedback,
+	);
+	const activation = activateAkashaMemoryField(input.traces, edges, input.cue, {
 		maxResults: options.maxTraces ?? 24,
 		now: options.now,
+		semanticSeeds,
 	});
+	const ranked = activation.scores;
 	const selectedTraces = ranked.map((score) => score.trace);
 	const recalledEventIds = uniqueStrings(selectedTraces.map((trace) => trace.eventId));
 	const recalledTraceIds = uniqueStrings(selectedTraces.map((trace) => trace.traceId));
+	const recalledEdgeIds = activation.activatedEdgeIds;
+	const activationReasons = Object.fromEntries(ranked.map((score) => [score.trace.traceId, score.reasons]));
+	const semanticSeedEventIds = uniqueStrings(semanticSeeds.map((seed) => seed.eventId));
+	const semanticSeedReasons = buildSemanticSeedReasons(semanticSeeds);
 	const sourceEventIds = uniqueStrings([
 		...input.cue.sourceEventIds,
+		...semanticSeedEventIds,
 		...selectedTraces.flatMap((trace) => trace.sourceEventIds),
+		...edges.filter((edge) => recalledEdgeIds.includes(edge.edgeId)).flatMap((edge) => edge.sourceEventIds),
 	]);
 	const eventsById = new Map(input.events.map((event) => [event.eventId, event]));
 	const episodes = buildEpisodes(ranked, eventsById).slice(0, options.maxEpisodes ?? 3);
@@ -130,6 +154,10 @@ export function reconstructAkashaMemoryField(input: {
 		recalledEventIds,
 		recalledCrystalIds,
 		recalledTraceIds,
+		recalledEdgeIds,
+		activationReasons,
+		semanticSeedEventIds,
+		semanticSeedReasons,
 		episodes,
 		patterns,
 		lessons,
@@ -145,11 +173,15 @@ export function reconstructAkashaMemoryField(input: {
 		cueId: input.cue.cueId,
 		recalledEventIds,
 		recalledTraceIds,
+		recalledEdgeIds,
+		semanticSeedEventIds,
+		semanticSeedReasons,
 		episodes: episodes.map((episode) => episode.episodeId),
 		lessons: lessons.map((lesson) => lesson.lessonId),
 		procedures: procedures.map((procedure) => procedure.procedureId),
 		warnings: warnings.map((warning) => warning.warningId),
 		validityAnnotations: validityAnnotations.map((annotation) => `${annotation.stateId}:${annotation.status}`),
+		activationReasons,
 	};
 	return {
 		fieldId: `field_${hashJson(fieldWithoutId).slice(0, 24)}`,
@@ -157,6 +189,10 @@ export function reconstructAkashaMemoryField(input: {
 		recalledEventIds,
 		recalledCrystalIds,
 		recalledTraceIds,
+		recalledEdgeIds,
+		activationReasons,
+		semanticSeedEventIds,
+		semanticSeedReasons,
 		episodes,
 		patterns,
 		lessons,
@@ -344,6 +380,16 @@ function episodeKey(trace: AkashaMemoryTrace, event?: AkashaEvent): string {
 
 function topReasons(ranked: AkashaMemoryTraceScore[]): string[] {
 	return uniqueStrings(ranked.flatMap((score) => score.reasons)).slice(0, 8);
+}
+
+function buildSemanticSeedReasons(seeds: AkashaSemanticMemorySeed[]): Record<string, string[]> {
+	const reasons = new Map<string, string[]>();
+	for (const seed of seeds) {
+		const values = reasons.get(seed.eventId) ?? [];
+		values.push(`${seed.reason}:score=${seed.score.toFixed(2)}`);
+		reasons.set(seed.eventId, uniqueStrings(values));
+	}
+	return Object.fromEntries([...reasons.entries()].sort(([left], [right]) => left.localeCompare(right)));
 }
 
 function overlap(a: string, b: string): number {

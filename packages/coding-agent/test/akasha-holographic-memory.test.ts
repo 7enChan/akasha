@@ -33,14 +33,28 @@ describe("Akasha holographic memory", () => {
 			sessionEvents: events,
 		});
 		const traces = buildAkashaMemoryTraces(events);
+		const patchEvent = events.find((event) => event.kind === "artifact.patched");
+		expect(patchEvent).toBeDefined();
 		const field = reconstructAkashaMemoryField({
 			events,
 			traces,
 			cue,
+			semanticSeeds: [
+				{
+					eventId: patchEvent!.eventId,
+					score: 0.5,
+					similarity: 0.77,
+					reason: "embedding:event:test:0.7700",
+				},
+			],
 			options: { maxTraces: 24, maxEpisodes: 3, maxLessons: 3, maxProcedures: 2, maxWarnings: 3 },
 		});
 
 		expect(field.recalledTraceIds.length).toBeGreaterThan(0);
+		expect(field.recalledEdgeIds.length).toBeGreaterThan(0);
+		expect(Object.keys(field.activationReasons).length).toBeGreaterThan(0);
+		expect(field.semanticSeedEventIds).toContain(patchEvent!.eventId);
+		expect(field.semanticSeedReasons[patchEvent!.eventId]?.[0]).toContain("embedding:event:test");
 		expect(field.episodes.some((episode) => episode.title.includes("src/foo.ts"))).toBe(true);
 		expect(field.warnings.some((warning) => warning.text.includes("foo test failed"))).toBe(true);
 		expect(field.procedures.some((procedure) => procedure.title.includes("npm test src/foo.test.ts"))).toBe(true);
@@ -60,12 +74,24 @@ describe("Akasha holographic memory", () => {
 			agentDir: tempDir,
 			reflection: settings.reflection,
 		});
+		const seedEventId = store
+			.buildTimeline({ limit: 100 })
+			.find((event) => event.kind === "artifact.patched")?.eventId;
+		expect(seedEventId).toBeDefined();
 
 		const result = kernel.buildActionContext({
 			cwd,
 			settings: settings.actionGate,
 			holographicMemory: settings.holographicMemory,
 			latestUserText: "Continue fixing src/foo.ts",
+			semanticMemorySeeds: [
+				{
+					eventId: seedEventId!,
+					score: 0.5,
+					similarity: 0.77,
+					reason: "embedding:event:test:0.7700",
+				},
+			],
 			parentEventIds: [],
 			sourceKey: "test-action-gate",
 		});
@@ -75,6 +101,10 @@ describe("Akasha holographic memory", () => {
 
 		expect(result.gate?.text).toContain("<akasha_holographic_memory>");
 		expect(recalled?.payload.recalledTraceIds).toEqual(expect.any(Array));
+		expect(recalled?.payload.recalledEdgeIds).toEqual(expect.any(Array));
+		expect(recalled?.payload.activationReasons).toEqual(expect.any(Object));
+		expect(recalled?.payload.semanticSeedEventIds).toContain(seedEventId);
+		expect(recalled?.payload.semanticSeedReasons).toEqual(expect.any(Object));
 		expect(injected?.parentEventIds).toContain(recalled?.eventId);
 	});
 });

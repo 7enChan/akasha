@@ -124,8 +124,23 @@ export {
 } from "./mapper.js";
 export type { AkashaMemoryCue, AkashaMemoryCueOptions } from "./memory-cue.js";
 export { buildAkashaMemoryCue } from "./memory-cue.js";
-export type { AkashaMemoryFeedbackProjection, AkashaMemoryTraceFeedback } from "./memory-feedback.js";
-export { applyAkashaMemoryFeedbackToTraces, buildAkashaMemoryFeedback } from "./memory-feedback.js";
+export type {
+	AkashaMemoryFeedbackProjection,
+	AkashaMemoryTraceEdgeFeedback,
+	AkashaMemoryTraceFeedback,
+} from "./memory-feedback.js";
+export {
+	applyAkashaMemoryFeedbackToEdges,
+	applyAkashaMemoryFeedbackToTraces,
+	buildAkashaMemoryFeedback,
+} from "./memory-feedback.js";
+export type {
+	AkashaMemoryActivationPath,
+	AkashaMemoryFieldActivationCluster,
+	AkashaMemoryFieldActivationOptions,
+	AkashaMemoryFieldActivationResult,
+} from "./memory-field-activation.js";
+export { activateAkashaMemoryField } from "./memory-field-activation.js";
 export type { AkashaMemoryGovernanceAction, AkashaMemoryGovernanceState } from "./memory-governance.js";
 export {
 	buildMemoryGovernance,
@@ -153,11 +168,21 @@ export { rankAkashaMemoryTraces, scoreAkashaMemoryTrace } from "./memory-resonan
 export type { AkashaMemoryTrace, AkashaMemoryTraceKind } from "./memory-trace.js";
 export { buildAkashaMemoryTraces, createAkashaMemoryTrace } from "./memory-trace.js";
 export {
+	buildCachedAkashaMemoryTraceEdges,
+	buildCachedAkashaMemoryTraceEdgesFromEvents,
 	buildCachedAkashaMemoryTraces,
 	buildCachedAkashaMemoryTracesFromEvents,
+	memoryTraceEdgeProjectionCacheKey,
+	memoryTraceEdgeProjectionCacheKeyForScope,
 	memoryTraceProjectionCacheKey,
 	memoryTraceProjectionCacheKeyForScope,
 } from "./memory-trace-cache.js";
+export type {
+	AkashaMemoryTraceEdge,
+	AkashaMemoryTraceEdgeKind,
+	AkashaMemoryTraceEdgePolarity,
+} from "./memory-trace-edge.js";
+export { buildAkashaMemoryTraceEdges } from "./memory-trace-edge.js";
 export type { AkashaOpenLoopRecord } from "./open-loops.js";
 export { buildOpenLoopLedger, deriveOpenLoopEvents } from "./open-loops.js";
 export { compareAkashaEvents, orderAkashaEvents } from "./ordering.js";
@@ -221,12 +246,18 @@ export {
 export type { AkashaCausalIndex } from "./projections.js";
 export { buildCausalIndex, findCausalPath, findDescendants } from "./projections.js";
 export type {
+	AkashaFieldRecallEvalOptions,
 	AkashaRecallEvalCase,
 	AkashaRecallEvalFailure,
 	AkashaRecallEvalOptions,
 	AkashaRecallEvalResult,
 } from "./recall-eval.js";
-export { formatAkashaRecallEvalResult, runAkashaRecallEval } from "./recall-eval.js";
+export {
+	formatAkashaRecallEvalResult,
+	rankAkashaFieldRecallEvents,
+	runAkashaFieldRecallEval,
+	runAkashaRecallEval,
+} from "./recall-eval.js";
 export { rankRecallEvents, scoreRecallEvent } from "./recall-policy.js";
 export type { AkashaRedactionTarget } from "./redaction.js";
 export { applyAkashaRedactions, collectRedactionTargets, createRedactionEvent } from "./redaction.js";
@@ -248,6 +279,8 @@ export type { AkashaSchemaIssue, AkashaSchemaParseResult } from "./schema.js";
 export { CURRENT_AKASHA_EVENT_VERSION, migrateAkashaEvent, parseAkashaJsonl, validateAkashaEvent } from "./schema.js";
 export type { AkashaClient, AkashaClientOptions } from "./sdk.js";
 export { createAkashaClient } from "./sdk.js";
+export type { AkashaSemanticMemorySeed } from "./semantic-memory-seed.js";
+export { buildAkashaSemanticMemorySeeds, SEMANTIC_SEED_LIMIT } from "./semantic-memory-seed.js";
 export type { AkashaSecretScanResult } from "./sensitive-data.js";
 export { sanitizeAkashaEventDraft, scanAkashaSecrets } from "./sensitive-data.js";
 export type { AkashaSessionIndexEntry, AkashaSessionIndexOptions } from "./session-index.js";

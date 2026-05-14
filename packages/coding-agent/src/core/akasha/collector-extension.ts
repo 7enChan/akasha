@@ -53,6 +53,11 @@ import {
 	createSkillProcedureAppliedDraft,
 	createSkillProcedureOutcomeDraft,
 } from "./procedural-memory.js";
+import {
+	type AkashaSemanticMemorySeed,
+	buildAkashaSemanticMemorySeeds,
+	SEMANTIC_SEED_LIMIT,
+} from "./semantic-memory-seed.js";
 import { createAkashaTemporalKernel } from "./temporal-kernel.js";
 import {
 	auditAkashaTimeSyscalls,
@@ -834,12 +839,19 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 
 			const lastUserMessage = [...event.messages].reverse().find((message) => message.role === "user");
 			const queryText = lastUserMessage ? userMessageText(lastUserMessage) : undefined;
+			const semanticMemorySeeds =
+				options.settings.actionGate.enabled &&
+				options.settings.holographicMemory.enabled &&
+				options.settings.holographicMemory.injectIntoActionGate
+					? await buildContextSemanticMemorySeeds(ctx, activeStore, queryText)
+					: [];
 			if (options.settings.actionGate.enabled) {
 				const result = createKernel()?.buildActionContext({
 					cwd: ctx.cwd,
 					settings: options.settings.actionGate,
 					holographicMemory: options.settings.holographicMemory,
 					latestUserText: queryText,
+					semanticMemorySeeds,
 					parentEventIds: parents(currentTurnEventId, latestLeafEventId),
 					correlationId: currentTurnEventId,
 					sourceKey: nextSourceKey("action-gate"),
@@ -939,6 +951,23 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 
 			return messages.length > event.messages.length ? { messages } : undefined;
 		});
+
+		async function buildContextSemanticMemorySeeds(
+			ctx: ExtensionContext,
+			activeStore: AkashaStore,
+			queryText: string | undefined,
+		): Promise<AkashaSemanticMemorySeed[]> {
+			if (!queryText?.trim()) return [];
+			const activeEmbeddingStore = ensureEmbeddingStore(ctx);
+			if (!embeddingProvider || !activeEmbeddingStore) return [];
+			return buildAkashaSemanticMemorySeeds({
+				events: activeStore.buildTimeline({ limit: 500 }),
+				embeddingStore: activeEmbeddingStore,
+				embeddingProvider,
+				queryText,
+				limit: SEMANTIC_SEED_LIMIT,
+			}).catch(() => []);
+		}
 
 		function injectPendingCallbackInboxContext():
 			| { text: string; eventIds: string[]; inboxItemIds: string[] }

@@ -25,8 +25,10 @@ import { buildAkashaMemoryCue } from "./memory-cue.js";
 import { createMemoryRecalledDraft } from "./memory-recall-events.js";
 import { createAkashaMemoryRecallScope } from "./memory-recall-scope.js";
 import {
+	buildCachedAkashaMemoryTraceEdgesFromEvents,
 	buildCachedAkashaMemoryTraces,
 	buildCachedAkashaMemoryTracesFromEvents,
+	memoryTraceEdgeProjectionCacheKeyForScope,
 	memoryTraceProjectionCacheKeyForScope,
 } from "./memory-trace-cache.js";
 import {
@@ -42,6 +44,7 @@ import {
 	type AkashaTemporalStateSnapshot,
 	buildCachedAkashaTemporalStateSnapshot,
 } from "./projection-cache.js";
+import type { AkashaSemanticMemorySeed } from "./semantic-memory-seed.js";
 import { type AkashaToolGateDecision, evaluateAkashaToolGate } from "./tool-gate.js";
 import type { AkashaEvent, AkashaEventDraft, AkashaStore } from "./types.js";
 import { buildAkashaUserTimeline } from "./user-timeline.js";
@@ -65,6 +68,7 @@ export interface AkashaActionContextBuildOptions {
 	latestUserText?: string;
 	pendingInboxItemIds?: string[];
 	strictRepairMissingEventIds?: string[];
+	semanticMemorySeeds?: AkashaSemanticMemorySeed[];
 	parentEventIds?: string[];
 	correlationId?: string;
 	turnEventId?: string;
@@ -153,6 +157,7 @@ export class AkashaTemporalKernel {
 			cwd: options.cwd,
 			pendingInboxItemIds: options.pendingInboxItemIds,
 			strictRepairMissingEventIds: options.strictRepairMissingEventIds,
+			semanticMemorySeeds: options.semanticMemorySeeds,
 			eventTime: options.eventTime,
 		});
 		const memoryGovernance = rawMemoryField
@@ -175,6 +180,8 @@ export class AkashaTemporalKernel {
 						payload: {
 							recalledEventIds: rawMemoryField.recalledEventIds,
 							recalledTraceIds: rawMemoryField.recalledTraceIds,
+							recalledEdgeIds: rawMemoryField.recalledEdgeIds,
+							semanticSeedEventIds: rawMemoryField.semanticSeedEventIds,
 							tokenEstimate: rawMemoryField.tokenEstimate,
 							suppressedSourceEventIds: memoryRecallBlockedSources,
 							governanceSuppressedEventIds: memoryGovernance?.suppressedEventIds ?? [],
@@ -283,19 +290,25 @@ export class AkashaTemporalKernel {
 		cwd: string;
 		pendingInboxItemIds?: string[];
 		strictRepairMissingEventIds?: string[];
+		semanticMemorySeeds?: AkashaSemanticMemorySeed[];
 		eventTime?: string;
 	}): AkashaReconstructedMemoryField | undefined {
 		const settings = input.settings;
 		if (!settings?.enabled || !settings.injectIntoActionGate) return undefined;
 		const events = input.projectTimeline?.events ?? input.sessionEvents;
 		const traceLimit = 1000;
+		const sourceLogPaths = input.projectTimeline
+			? input.projectTimeline.sessions.map((session) => session.eventLogPath)
+			: [this.store.eventLogPath];
+		const projectionScope = input.projectTimeline ? "project" : "session";
+		const projectionScopeKey = input.projectTimeline ? `project:${input.cwd}` : `session:${this.store.eventLogPath}`;
 		const traces = input.projectTimeline
 			? buildCachedAkashaMemoryTracesFromEvents(events, {
 					agentDir: this.agentDir,
 					eventLogDir: this.eventLogDir,
-					scope: "project",
+					scope: projectionScope,
 					cacheKey: memoryTraceProjectionCacheKeyForScope(`project:${input.cwd}`, traceLimit),
-					sourceLogPaths: input.projectTimeline.sessions.map((session) => session.eventLogPath),
+					sourceLogPaths,
 					limit: traceLimit,
 				}).value
 			: buildCachedAkashaMemoryTraces(this.store, {
@@ -304,6 +317,14 @@ export class AkashaTemporalKernel {
 					limit: traceLimit,
 				}).value;
 		if (traces.length === 0) return undefined;
+		const edges = buildCachedAkashaMemoryTraceEdgesFromEvents(events, traces, {
+			agentDir: this.agentDir,
+			eventLogDir: this.eventLogDir,
+			scope: projectionScope,
+			cacheKey: memoryTraceEdgeProjectionCacheKeyForScope(projectionScopeKey, traceLimit),
+			sourceLogPaths,
+			limit: traceLimit,
+		}).value;
 		const cue = buildAkashaMemoryCue({
 			latestUserText: input.latestUserText,
 			cwd: input.cwd,
@@ -317,7 +338,9 @@ export class AkashaTemporalKernel {
 		const field = reconstructAkashaMemoryField({
 			events,
 			traces,
+			edges,
 			cue,
+			semanticSeeds: input.semanticMemorySeeds,
 			options: {
 				maxTraces: settings.maxTraces,
 				maxEpisodes: settings.maxEpisodes,

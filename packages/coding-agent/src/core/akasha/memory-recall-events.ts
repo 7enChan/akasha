@@ -32,7 +32,11 @@ export function createMemoryRecalledDraft(input: {
 			fieldId: input.field.fieldId,
 			recalledEventIds: input.field.recalledEventIds,
 			recalledTraceIds: input.field.recalledTraceIds,
+			recalledEdgeIds: input.field.recalledEdgeIds,
 			recalledCrystalIds: input.field.recalledCrystalIds,
+			activationReasons: input.field.activationReasons,
+			semanticSeedEventIds: input.field.semanticSeedEventIds,
+			semanticSeedReasons: input.field.semanticSeedReasons,
 			procedureIds: input.field.procedures.map((procedure) => procedure.procedureId),
 			sections: ["episodes", "lessons", "procedures", "warnings"].filter((section) =>
 				fieldHasSection(input.field, section),

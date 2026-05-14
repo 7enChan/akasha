@@ -3,6 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { JsonlAkashaStore } from "../src/core/akasha/jsonl-store.js";
+import { buildAkashaMemoryTraces } from "../src/core/akasha/memory-trace.js";
+import {
+	buildCachedAkashaMemoryTraceEdgesFromEvents,
+	memoryTraceEdgeProjectionCacheKeyForScope,
+} from "../src/core/akasha/memory-trace-cache.js";
 import { buildAkashaProjectTimeline } from "../src/core/akasha/project-timeline.js";
 import {
 	buildCachedAkashaTemporalStateSnapshot,
@@ -80,6 +85,62 @@ describe("Akasha projection cache", () => {
 		expect(rebuilt.rebuilt).toBe(true);
 		expect(rebuilt.value.taskModel.decisions[0]?.text).toContain("cache");
 		expect(rebuiltAfterDelete.rebuilt).toBe(true);
+	});
+
+	it("caches trace edge projections and invalidates when source logs change", () => {
+		const store = new JsonlAkashaStore(join(tempDir, "events", "session-edge.jsonl"));
+		store.append({
+			kind: "artifact.patched",
+			sessionId: "session-edge",
+			streamId: "session:session-edge",
+			eventTime: "2026-05-12T00:00:00.000Z",
+			actor: "tool",
+			objectId: "src/ledger.ts",
+			payload: { path: "src/ledger.ts", editCount: 1 },
+		});
+		store.append({
+			kind: "tool.completed",
+			sessionId: "session-edge",
+			streamId: "session:session-edge",
+			eventTime: "2026-05-12T00:01:00.000Z",
+			actor: "tool",
+			parentEventIds: ["evt-missing-parent"],
+			objectId: "bash",
+			payload: { toolName: "bash", isError: true, summary: "ledger failed", path: "src/ledger.ts" },
+		});
+
+		const firstEvents = store.buildTimeline({ limit: 1000 });
+		const firstTraces = buildAkashaMemoryTraces(firstEvents);
+		const cacheOptions = {
+			agentDir: tempDir,
+			eventLogDir: join(tempDir, "events"),
+			scope: "session" as const,
+			cacheKey: memoryTraceEdgeProjectionCacheKeyForScope("session-edge", 1000),
+			sourceLogPaths: [store.eventLogPath],
+			limit: 1000,
+		};
+		const first = buildCachedAkashaMemoryTraceEdgesFromEvents(firstEvents, firstTraces, cacheOptions);
+		const second = buildCachedAkashaMemoryTraceEdgesFromEvents(firstEvents, firstTraces, cacheOptions);
+
+		store.append({
+			kind: "command.executed",
+			sessionId: "session-edge",
+			streamId: "session:session-edge",
+			eventTime: "2026-05-12T00:02:00.000Z",
+			actor: "tool",
+			objectId: "npm test src/ledger.ts",
+			payload: { command: "npm test src/ledger.ts", exitCode: 0, path: "src/ledger.ts" },
+		});
+		const changedEvents = store.buildTimeline({ limit: 1000 });
+		const changedTraces = buildAkashaMemoryTraces(changedEvents);
+		const rebuilt = buildCachedAkashaMemoryTraceEdgesFromEvents(changedEvents, changedTraces, cacheOptions);
+
+		expect(first.rebuilt).toBe(true);
+		expect(first.value.length).toBeGreaterThan(0);
+		expect(second.rebuilt).toBe(false);
+		expect(second.freshness.status).toBe("fresh");
+		expect(rebuilt.rebuilt).toBe(true);
+		expect(rebuilt.value.length).toBeGreaterThan(first.value.length);
 	});
 
 	it("can use strong source fingerprints", () => {

@@ -1,4 +1,5 @@
 import type { AkashaMemoryTrace } from "./memory-trace.js";
+import type { AkashaMemoryTraceEdge } from "./memory-trace-edge.js";
 import { orderAkashaEvents } from "./ordering.js";
 import type { AkashaEvent } from "./types.js";
 
@@ -11,17 +12,29 @@ export interface AkashaMemoryTraceFeedback {
 	decay: number;
 }
 
+export interface AkashaMemoryTraceEdgeFeedback {
+	edgeId: string;
+	recallCount: number;
+	lastRecalledAt?: string;
+	reinforcement: number;
+	decay: number;
+}
+
 export interface AkashaMemoryFeedbackProjection {
 	byTraceId: Map<string, AkashaMemoryTraceFeedback>;
 	byEventId: Map<string, AkashaMemoryTraceFeedback>;
+	byEdgeId: Map<string, AkashaMemoryTraceEdgeFeedback>;
 }
 
 const RECALL_BONUS = 0.01;
 const MAX_RECALL_BONUS = 0.08;
+const EDGE_RECALL_BONUS = 0.006;
+const MAX_EDGE_RECALL_BONUS = 0.05;
 
 export function buildAkashaMemoryFeedback(events: AkashaEvent[]): AkashaMemoryFeedbackProjection {
 	const byTraceId = new Map<string, AkashaMemoryTraceFeedback>();
 	const byEventId = new Map<string, AkashaMemoryTraceFeedback>();
+	const byEdgeId = new Map<string, AkashaMemoryTraceEdgeFeedback>();
 	const recalls = new Map<string, AkashaEvent>();
 
 	for (const event of orderAkashaEvents(events)) {
@@ -29,6 +42,7 @@ export function buildAkashaMemoryFeedback(events: AkashaEvent[]): AkashaMemoryFe
 			recalls.set(event.eventId, event);
 			const recalledTraceIds = stringArrayPayload(event, "recalledTraceIds");
 			const recalledEventIds = stringArrayPayload(event, "recalledEventIds");
+			const recalledEdgeIds = stringArrayPayload(event, "recalledEdgeIds");
 			for (const traceId of recalledTraceIds) {
 				const feedback = getTraceFeedback(byTraceId, traceId);
 				feedback.recallCount += 1;
@@ -36,6 +50,11 @@ export function buildAkashaMemoryFeedback(events: AkashaEvent[]): AkashaMemoryFe
 			}
 			for (const eventId of recalledEventIds) {
 				const feedback = getEventFeedback(byEventId, eventId);
+				feedback.recallCount += 1;
+				feedback.lastRecalledAt = event.eventTime;
+			}
+			for (const edgeId of recalledEdgeIds) {
+				const feedback = getEdgeFeedback(byEdgeId, edgeId);
 				feedback.recallCount += 1;
 				feedback.lastRecalledAt = event.eventTime;
 			}
@@ -52,14 +71,19 @@ export function buildAkashaMemoryFeedback(events: AkashaEvent[]): AkashaMemoryFe
 			for (const eventId of stringArrayPayload(recalled, "recalledEventIds")) {
 				getEventFeedback(byEventId, eventId).reinforcement += delta;
 			}
+			for (const edgeId of stringArrayPayload(recalled, "recalledEdgeIds")) {
+				getEdgeFeedback(byEdgeId, edgeId).reinforcement += delta;
+			}
 			continue;
 		}
 
 		if (event.kind === "memory.decayed") {
 			const traceId = stringPayload(event, "traceId");
 			const targetEventId = stringPayload(event, "targetEventId");
+			const edgeId = stringPayload(event, "edgeId") ?? stringPayload(event, "targetEdgeId");
 			if (traceId) getTraceFeedback(byTraceId, traceId).decay += 0.16;
 			if (targetEventId) getEventFeedback(byEventId, targetEventId).decay += 0.16;
+			if (edgeId) getEdgeFeedback(byEdgeId, edgeId).decay += 0.16;
 			continue;
 		}
 
@@ -71,7 +95,7 @@ export function buildAkashaMemoryFeedback(events: AkashaEvent[]): AkashaMemoryFe
 		}
 	}
 
-	return { byTraceId, byEventId };
+	return { byTraceId, byEventId, byEdgeId };
 }
 
 export function applyAkashaMemoryFeedbackToTraces(
@@ -101,6 +125,24 @@ export function applyAkashaMemoryFeedbackToTraces(
 	});
 }
 
+export function applyAkashaMemoryFeedbackToEdges(
+	edges: AkashaMemoryTraceEdge[],
+	feedback: AkashaMemoryFeedbackProjection,
+): AkashaMemoryTraceEdge[] {
+	return edges.map((edge) => {
+		const edgeFeedback = feedback.byEdgeId.get(edge.edgeId);
+		if (!edgeFeedback) return edge;
+		const recallBonus = Math.min(MAX_EDGE_RECALL_BONUS, edgeFeedback.recallCount * EDGE_RECALL_BONUS);
+		const reinforcement = edgeFeedback.reinforcement;
+		const decay = edgeFeedback.decay;
+		return {
+			...edge,
+			weight: clamp01(edge.weight + reinforcement - decay + recallBonus),
+			confidence: clamp01(edge.confidence + Math.max(-0.06, Math.min(0.06, reinforcement / 2 - decay / 3))),
+		};
+	});
+}
+
 function getTraceFeedback(map: Map<string, AkashaMemoryTraceFeedback>, traceId: string): AkashaMemoryTraceFeedback {
 	const existing = map.get(traceId);
 	if (existing) return existing;
@@ -125,6 +167,22 @@ function getEventFeedback(map: Map<string, AkashaMemoryTraceFeedback>, eventId: 
 		decay: 0,
 	};
 	map.set(eventId, created);
+	return created;
+}
+
+function getEdgeFeedback(
+	map: Map<string, AkashaMemoryTraceEdgeFeedback>,
+	edgeId: string,
+): AkashaMemoryTraceEdgeFeedback {
+	const existing = map.get(edgeId);
+	if (existing) return existing;
+	const created: AkashaMemoryTraceEdgeFeedback = {
+		edgeId,
+		recallCount: 0,
+		reinforcement: 0,
+		decay: 0,
+	};
+	map.set(edgeId, created);
 	return created;
 }
 
