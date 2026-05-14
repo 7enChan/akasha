@@ -105,6 +105,17 @@ export type {
 	AkashaPromiseState,
 } from "./karma-ledger.js";
 export { buildKarmaLedger } from "./karma-ledger.js";
+export type {
+	AkashaLongitudinalMemoryEvalCase,
+	AkashaLongitudinalMemoryEvalCaseResult,
+	AkashaLongitudinalMemoryEvalMetrics,
+	AkashaLongitudinalMemoryEvalOptions,
+	AkashaLongitudinalMemoryEvalResult,
+} from "./longitudinal-memory-eval.js";
+export {
+	formatAkashaLongitudinalMemoryEvalResult,
+	runAkashaLongitudinalMemoryEval,
+} from "./longitudinal-memory-eval.js";
 export type { AkashaMaintenanceOptions, AkashaMaintenanceResult } from "./maintenance.js";
 export { runAkashaMaintenancePass } from "./maintenance.js";
 export type {
