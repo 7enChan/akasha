@@ -1,0 +1,122 @@
+{
+  "name": "akasha-m56-longitudinal-memory-gate",
+  "eventLogPaths": [
+    "../packages/coding-agent/test/fixtures/akasha/longitudinal-memory.jsonl"
+  ],
+  "cwd": "/repo",
+  "now": "2026-05-14T12:00:00.000Z",
+  "defaultLimit": 8,
+  "maxTraces": 32,
+  "budget": {
+    "minRecallHitRate": 1,
+    "maxPollutionRate": 0,
+    "minOpenLoopCoverage": 1,
+    "minCurrentnessCoverage": 1,
+    "minActionGateCoverage": 1,
+    "maxEstimatedActionGateTokens": 2000,
+    "maxDurationMs": 10000,
+    "maxParseIssues": 0
+  },
+  "semanticSeedsByQuery": {
+    "akasha longitudinal memory eval": [
+      {
+        "eventId": "evt-long-failure-lesson",
+        "score": 0.9,
+        "similarity": 0.92,
+        "reason": "m56-corpus:failure-lesson"
+      },
+      {
+        "eventId": "evt-narrow-pref",
+        "score": 0.85,
+        "similarity": 0.89,
+        "reason": "m56-corpus:narrow-pref"
+      },
+      {
+        "eventId": "evt-current-artifact",
+        "score": 0.8,
+        "similarity": 0.86,
+        "reason": "m56-corpus:artifact"
+      },
+      {
+        "eventId": "evt-current-open-loop",
+        "score": 0.75,
+        "similarity": 0.83,
+        "reason": "m56-corpus:open-loop"
+      }
+    ],
+    "stomach health": [
+      {
+        "eventId": "evt-old-health",
+        "score": 0.9,
+        "similarity": 0.92,
+        "reason": "m56-corpus:stale-health"
+      }
+    ],
+    "package manager commands": [
+      {
+        "eventId": "evt-npm-pref",
+        "score": 0.9,
+        "similarity": 0.92,
+        "reason": "m56-corpus:npm-pref"
+      },
+      {
+        "eventId": "evt-pkg-pref-reconsolidated",
+        "score": 0.85,
+        "similarity": 0.89,
+        "reason": "m56-corpus:reconsolidated-pref"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "cross-day coding memory",
+      "queryText": "akasha longitudinal memory eval",
+      "limit": 8,
+      "mustRecall": [
+        "evt-long-failure-lesson",
+        "evt-narrow-pref",
+        "evt-current-artifact",
+        "evt-current-open-loop"
+      ],
+      "mustNotRecall": [
+        "evt-old-pnpm-pref"
+      ],
+      "expectOpenLoops": [
+        "evt-current-artifact:artifact_changed_without_validation"
+      ],
+      "expectActionGateIncludes": [
+        "Validate longitudinal eval fixture and focused tests",
+        "packages/coding-agent/src/core/akasha/longitudinal-memory-eval.ts"
+      ]
+    },
+    {
+      "name": "stale health memory is historical",
+      "queryText": "stomach health",
+      "limit": 5,
+      "mustRecall": [
+        "evt-old-health"
+      ],
+      "expectCurrentnessChecks": [
+        "state-health-stomach"
+      ],
+      "expectActionGateIncludes": [
+        "Before relying on \"User said their stomach hurt\""
+      ],
+      "expectActionGateExcludes": [
+        "current health_state state-health-stomach"
+      ]
+    },
+    {
+      "name": "corrected package manager preference",
+      "queryText": "package manager commands",
+      "limit": 6,
+      "mustRecall": [
+        "evt-npm-pref",
+        "evt-pkg-pref-reconsolidated"
+      ],
+      "mustNotRecall": [
+        "evt-old-pnpm-pref"
+      ]
+    }
+  ]
+}

@@ -17,6 +17,15 @@ import type {
 	ResolvedAkashaReflectionSettings,
 	ResolvedAkashaSettings,
 } from "../settings-manager.js";
+import {
+	AKASHA_CODING_ACTION_SURFACE,
+	type AkashaResolvedActionSurfaceRequest,
+	buildAkashaActionSurfacePolicyAction,
+	createAkashaActionSurfaceOutcomeDraft,
+	createAkashaActionSurfaceRequestedDraft,
+	createAkashaCodingToolSurfaceRequest,
+	resolveAkashaActionSurfaceRequest,
+} from "./action-surface.js";
 import { buildTemporalBrief, buildTemporalBriefWithEmbeddings } from "./brief.js";
 import {
 	appendAkashaCallbackInboxEvent,
@@ -136,6 +145,10 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 
 		const toolRequestEventIds = new Map<string, string>();
 		const toolCompletedEventIds = new Map<string, string>();
+		const toolSurfaceRequests = new Map<
+			string,
+			{ requestedEventId: string; resolution: AkashaResolvedActionSurfaceRequest }
+		>();
 		const toolAssistantParentIds = new Map<string, string>();
 		const sessionEntryEventIds = new Map<string, string>();
 		const injectedInboxItemIds = new Set<string>();
@@ -207,6 +220,7 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			latestLeafEventId = undefined;
 			toolRequestEventIds.clear();
 			toolCompletedEventIds.clear();
+			toolSurfaceRequests.clear();
 			toolAssistantParentIds.clear();
 			sessionEntryEventIds.clear();
 			injectedInboxItemIds.clear();
@@ -577,6 +591,66 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 				severity: "info" as const,
 				eventIds: [],
 			};
+			const surfaceResolution = resolveAkashaActionSurfaceRequest(
+				[AKASHA_CODING_ACTION_SURFACE],
+				createAkashaCodingToolSurfaceRequest({
+					toolName: event.toolName,
+					toolCallId: event.toolCallId,
+					input: event.input,
+				}),
+			);
+			const surfacePolicy = createKernel()?.evaluateRuntimePolicy({
+				action: buildAkashaActionSurfacePolicyAction(surfaceResolution),
+				parentEventIds,
+				correlationId: currentTurnEventId,
+				sourceKey: `tool-call:${sessionId}:${event.toolCallId}:surface-policy`,
+			});
+			const surfaceRequested = append(
+				createAkashaActionSurfaceRequestedDraft(
+					{
+						sessionId: sessionId ?? ctx.sessionManager.getSessionId(),
+						streamId,
+						eventTime: nowIso(),
+						parentEventIds: parents(surfacePolicy?.event.eventId, ...parentEventIds),
+						correlationId: currentTurnEventId,
+						sourceEventIds: parents(surfacePolicy?.event.eventId),
+					},
+					surfaceResolution,
+				),
+			);
+			if (surfacePolicy?.decision.action !== undefined && surfacePolicy.decision.action !== "allow") {
+				if (surfaceRequested) {
+					append(
+						createAkashaActionSurfaceOutcomeDraft(
+							{
+								sessionId: sessionId ?? ctx.sessionManager.getSessionId(),
+								streamId,
+								eventTime: nowIso(),
+								parentEventIds: parents(surfacePolicy.event.eventId),
+								correlationId: currentTurnEventId,
+							},
+							{
+								request: surfaceResolution.request,
+								resolution: surfaceResolution,
+								requestedEventId: surfaceRequested.eventId,
+								succeeded: false,
+								summary: surfacePolicy.decision.reason,
+								error: surfacePolicy.decision.action,
+							},
+						),
+					);
+				}
+				return {
+					block: true,
+					reason: surfacePolicy.decision.reason,
+				};
+			}
+			if (surfaceRequested) {
+				toolSurfaceRequests.set(event.toolCallId, {
+					requestedEventId: surfaceRequested.eventId,
+					resolution: surfaceResolution,
+				});
+			}
 			let policyEventId: string | undefined;
 			if (gateDecision.rule) {
 				const policy = append(
@@ -611,6 +685,28 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 				policyEventId = policy?.eventId;
 			}
 			if (gateDecision.action === "defer" && gateDecision.callback) {
+				const surfaceRequest = toolSurfaceRequests.get(event.toolCallId);
+				if (surfaceRequest) {
+					append(
+						createAkashaActionSurfaceOutcomeDraft(
+							{
+								sessionId: sessionId ?? ctx.sessionManager.getSessionId(),
+								streamId,
+								eventTime: nowIso(),
+								parentEventIds: parents(policyEventId),
+								correlationId: currentTurnEventId,
+							},
+							{
+								request: surfaceRequest.resolution.request,
+								resolution: surfaceRequest.resolution,
+								requestedEventId: surfaceRequest.requestedEventId,
+								succeeded: false,
+								summary: gateDecision.reason ?? "Akasha deferred this tool call.",
+								error: "defer",
+							},
+						),
+					);
+				}
 				const scheduled = createKernel()?.scheduleCallback({
 					callbackId: gateDecision.callback.callbackId,
 					kind: "scheduled_callback",
@@ -629,6 +725,28 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 				};
 			}
 			if (!gateDecision.allow) {
+				const surfaceRequest = toolSurfaceRequests.get(event.toolCallId);
+				if (surfaceRequest) {
+					append(
+						createAkashaActionSurfaceOutcomeDraft(
+							{
+								sessionId: sessionId ?? ctx.sessionManager.getSessionId(),
+								streamId,
+								eventTime: nowIso(),
+								parentEventIds: parents(policyEventId),
+								correlationId: currentTurnEventId,
+							},
+							{
+								request: surfaceRequest.resolution.request,
+								resolution: surfaceRequest.resolution,
+								requestedEventId: surfaceRequest.requestedEventId,
+								succeeded: false,
+								summary: gateDecision.reason ?? "Akasha blocked this tool call.",
+								error: gateDecision.action ?? "block",
+							},
+						),
+					);
+				}
 				append(
 					baseDraft(
 						"tool.blocked",
@@ -720,7 +838,11 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 					streamId,
 					eventTime: nowIso(),
 					sourceKey: `tool-call:${sessionId}:${event.toolCallId}:requested`,
-					parentEventIds: parents(applied?.eventId, ...parentEventIds),
+					parentEventIds: parents(
+						applied?.eventId,
+						toolSurfaceRequests.get(event.toolCallId)?.requestedEventId,
+						...parentEventIds,
+					),
 					correlationId: currentTurnEventId,
 				}),
 			);
@@ -745,6 +867,32 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			);
 			if (completed) {
 				toolCompletedEventIds.set(event.toolCallId, completed.eventId);
+				const surfaceRequest = toolSurfaceRequests.get(event.toolCallId);
+				if (surfaceRequest) {
+					append(
+						createAkashaActionSurfaceOutcomeDraft(
+							{
+								sessionId: sessionId ?? ctx.sessionManager.getSessionId(),
+								streamId,
+								eventTime: nowIso(),
+								parentEventIds: parents(completed.eventId),
+								correlationId: currentTurnEventId,
+							},
+							{
+								request: surfaceRequest.resolution.request,
+								resolution: surfaceRequest.resolution,
+								requestedEventId: surfaceRequest.requestedEventId,
+								succeeded: !event.isError,
+								summary: event.isError ? "Tool result failed." : "Tool result completed.",
+								error: event.isError ? "tool_result_failed" : undefined,
+								resultPayload: {
+									toolName: event.toolName,
+									toolCallId: event.toolCallId,
+								},
+							},
+						),
+					);
+				}
 				const application = toolMemoryApplications.get(event.toolCallId);
 				let memoryOutcomeEvent: AkashaEvent | undefined;
 				if (application) {

@@ -78,6 +78,15 @@ export {
 export type { AkashaDoctorReport } from "./doctor.js";
 export { buildAkashaDoctorReport } from "./doctor.js";
 export type {
+	AkashaDogfoodCorpusSpec,
+	AkashaDogfoodGateOptions,
+} from "./dogfood-gate.js";
+export {
+	createAkashaDogfoodCorpusFromStores,
+	loadAkashaDogfoodCorpusSpec,
+	runAkashaDogfoodGate,
+} from "./dogfood-gate.js";
+export type {
 	AkashaDogfoodMemoryEvalBudget,
 	AkashaDogfoodMemoryEvalCorpus,
 	AkashaDogfoodMemoryEvalCorpusResult,

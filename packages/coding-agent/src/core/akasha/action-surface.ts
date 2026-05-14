@@ -87,6 +87,66 @@ export class AkashaActionSurfaceRegistry {
 	}
 }
 
+export const AKASHA_CODING_ACTION_SURFACE: AkashaActionSurface = {
+	surfaceId: "akasha.coding-agent",
+	kind: "coding",
+	label: "Akasha coding agent",
+	capabilities: [
+		{
+			capabilityId: "read_project",
+			title: "Read project files and search project text",
+			risk: "low",
+			actions: ["read", "ls", "grep", "find"],
+		},
+		{
+			capabilityId: "modify_project",
+			title: "Modify project files",
+			risk: "high",
+			actions: ["write", "edit"],
+		},
+		{
+			capabilityId: "run_shell",
+			title: "Run shell commands",
+			risk: "high",
+			actions: ["bash"],
+		},
+		{
+			capabilityId: "time_syscall",
+			title: "Write explicit Akasha time records",
+			risk: "medium",
+		},
+		{
+			capabilityId: "extension_tool",
+			title: "Run extension-provided tools",
+			risk: "medium",
+		},
+	],
+};
+
+export interface AkashaCodingToolSurfaceRequestInput {
+	toolName: string;
+	toolCallId: string;
+	input: unknown;
+}
+
+export function createAkashaCodingToolSurfaceRequest(
+	input: AkashaCodingToolSurfaceRequestInput,
+): AkashaActionSurfaceRequest {
+	return {
+		requestId: input.toolCallId,
+		surfaceId: AKASHA_CODING_ACTION_SURFACE.surfaceId,
+		capabilityId: capabilityForCodingTool(input.toolName),
+		actionId: input.toolName,
+		subject: input.toolName,
+		objectId: objectIdForCodingTool(input.toolName, input.input),
+		payload: {
+			toolName: input.toolName,
+			toolCallId: input.toolCallId,
+			input: safeToolInput(input.input),
+		},
+	};
+}
+
 export function resolveAkashaActionSurfaceRequest(
 	surfaces: AkashaActionSurface[],
 	request: AkashaActionSurfaceRequest,
@@ -209,4 +269,30 @@ function surfaceSubject(surface: AkashaActionSurface | undefined, surfaceId: str
 
 function uniqueStrings(values: string[]): string[] {
 	return [...new Set(values.filter((value) => value.length > 0))];
+}
+
+function capabilityForCodingTool(toolName: string): string {
+	if (toolName === "read" || toolName === "ls" || toolName === "grep" || toolName === "find") return "read_project";
+	if (toolName === "write" || toolName === "edit") return "modify_project";
+	if (toolName === "bash") return "run_shell";
+	if (toolName.startsWith("akasha_")) return "time_syscall";
+	return "extension_tool";
+}
+
+function objectIdForCodingTool(toolName: string, input: unknown): string | undefined {
+	if (!isRecord(input)) return toolName;
+	for (const key of ["path", "file_path", "command", "query"]) {
+		const value = input[key];
+		if (typeof value === "string" && value.length > 0) return value;
+	}
+	return toolName;
+}
+
+function safeToolInput(input: unknown): Record<string, unknown> {
+	if (!isRecord(input)) return { value: String(input) };
+	return input;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

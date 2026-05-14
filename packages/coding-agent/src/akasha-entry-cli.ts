@@ -13,6 +13,8 @@ import type { AkashaCallbackDispatchMode } from "./core/akasha/callback-runner.j
 import { buildRunnableCallbacks, runAkashaCallbackRunner } from "./core/akasha/callback-runner.js";
 import { resolveAkashaEventLogPath } from "./core/akasha/collector-extension.js";
 import { buildAkashaDaemonQueue, runAkashaDaemonQueuePass } from "./core/akasha/daemon-queue.js";
+import { runAkashaDogfoodGate } from "./core/akasha/dogfood-gate.js";
+import { formatAkashaDogfoodMemoryEvalResult } from "./core/akasha/dogfood-memory-eval.js";
 import { JsonlAkashaStore } from "./core/akasha/jsonl-store.js";
 import { rulesForAkashaPolicyProfile } from "./core/akasha/policy-kernel.js";
 import {
@@ -43,6 +45,7 @@ export async function handleAkashaEntrypointCommand(args: string[], cwd: string)
 		command !== "enable" &&
 		command !== "status" &&
 		command !== "doctor" &&
+		command !== "dogfood" &&
 		command !== "daemon" &&
 		command !== "cache" &&
 		command !== "inbox" &&
@@ -63,6 +66,11 @@ export async function handleAkashaEntrypointCommand(args: string[], cwd: string)
 
 	if (command === "daemon") {
 		await handleAkashaDaemonCommand(args.slice(1), cwd, agentDir, settingsManager);
+		return true;
+	}
+
+	if (command === "dogfood") {
+		handleAkashaDogfoodCommand(args.slice(1), cwd, agentDir, settingsManager);
 		return true;
 	}
 
@@ -129,21 +137,23 @@ function printAkashaEntrypointHelp(command?: string): void {
 	const usage =
 		command === "daemon"
 			? "akasha daemon status|tick|run [--scope current|project|all] [--dispatch record_only|terminal_notification|agent_prompt_file|auto_run_safe]"
-			: command === "cache"
-				? "akasha cache status|clear|rebuild [--scope current|project|all]"
-				: command === "inbox"
-					? "akasha inbox status|list|run|consume [id|all]"
-					: command === "sleep"
-						? "akasha sleep status|run [--scope current|project|all]"
-						: command === "gateway"
-							? "akasha gateway [setup|status|run|install|uninstall|start|stop|logs]"
-							: command === "doctor"
-								? "akasha doctor"
-								: command === "status"
-									? "akasha status"
-									: command === "enable"
-										? "akasha enable [--global]"
-										: "akasha init [--global]";
+			: command === "dogfood"
+				? "akasha dogfood gate [--corpus path] [--scope current|project|all]"
+				: command === "cache"
+					? "akasha cache status|clear|rebuild [--scope current|project|all]"
+					: command === "inbox"
+						? "akasha inbox status|list|run|consume [id|all]"
+						: command === "sleep"
+							? "akasha sleep status|run [--scope current|project|all]"
+							: command === "gateway"
+								? "akasha gateway [setup|status|run|install|uninstall|start|stop|logs]"
+								: command === "doctor"
+									? "akasha doctor"
+									: command === "status"
+										? "akasha status"
+										: command === "enable"
+											? "akasha enable [--global]"
+											: "akasha init [--global]";
 	console.log(`${chalk.bold("Akasha")} - time-native coding agent
 
 ${chalk.bold("Usage:")}
@@ -154,6 +164,7 @@ ${chalk.bold("Commands:")}
   akasha enable [--global]  Alias for init
   akasha status             Show resolved Akasha state
   akasha doctor             Check Akasha runtime health
+  akasha dogfood ...        Run Akasha dogfood memory quality gates
   akasha daemon ...         Run Akasha daemon operations outside a session
   akasha cache ...          Inspect or rebuild Akasha projection caches
   akasha inbox ...          Inspect or consume pending callback prompts
@@ -289,6 +300,39 @@ async function handleAkashaGatewayCommand(
 
 	console.log("Starting Akasha gateway. Press Ctrl+C to stop.");
 	await created.runner.start();
+}
+
+function handleAkashaDogfoodCommand(
+	args: string[],
+	cwd: string,
+	agentDir: string,
+	settingsManager: SettingsManager,
+): void {
+	const action = args[0] ?? "gate";
+	if (action !== "gate") {
+		console.log("Usage: akasha dogfood gate [--corpus path] [--scope current|project|all]");
+		return;
+	}
+	const settings = settingsManager.getAkashaSettings();
+	const corpusPath = parseStringOption(args, "--corpus");
+	const stores = corpusPath ? [] : loadStoresForScope(cwd, agentDir, settings.eventLogDir, parseScope(args));
+	if (!corpusPath && stores.length === 0) {
+		console.log("Akasha dogfood gate: no event logs found.");
+		return;
+	}
+	const result = runAkashaDogfoodGate({
+		name: `akasha dogfood ${parseScope(args)} logs`,
+		cwd,
+		corpusPath,
+		stores,
+		defaultBudget: {
+			maxParseIssues: 0,
+			maxDurationMs: parseNumberOption(args, "--max-duration-ms", 10_000),
+			maxEstimatedActionGateTokens: parseNumberOption(args, "--max-action-gate-tokens", 4_000),
+		},
+	});
+	console.log(formatAkashaDogfoodMemoryEvalResult(result));
+	if (!result.passed) process.exitCode = 1;
 }
 
 async function handleAkashaDaemonCommand(
@@ -616,6 +660,19 @@ function parseLimit(args: string[], defaultValue: number): number {
 	const parsed = value ? Number(value) : defaultValue;
 	if (!Number.isFinite(parsed)) return defaultValue;
 	return Math.max(1, Math.min(50, Math.floor(parsed)));
+}
+
+function parseStringOption(args: string[], name: string): string | undefined {
+	const index = args.indexOf(name);
+	const value = index >= 0 ? args[index + 1] : undefined;
+	return value && !value.startsWith("--") ? value : undefined;
+}
+
+function parseNumberOption(args: string[], name: string, defaultValue: number): number {
+	const value = parseStringOption(args, name);
+	const parsed = value ? Number(value) : defaultValue;
+	if (!Number.isFinite(parsed)) return defaultValue;
+	return parsed;
 }
 
 function storeForInboxItem(

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -181,6 +181,73 @@ describe("Akasha entry CLI", () => {
 		});
 		expect(logs.join("\n")).toContain("Akasha gateway status");
 		expect(logs.join("\n")).toContain("TELEGRAM_BOT_TOKEN");
+	});
+
+	it("runs the dogfood gate against a corpus spec", async () => {
+		const corpusPath = join(tempDir, "dogfood-corpus.json");
+		writeFileSync(
+			corpusPath,
+			JSON.stringify({
+				name: "entry-cli-dogfood-corpus",
+				eventLogPaths: [join(__dirname, "fixtures", "akasha", "longitudinal-memory.jsonl")],
+				cwd: "/repo",
+				now: "2026-05-14T12:00:00.000Z",
+				budget: {
+					minRecallHitRate: 1,
+					maxPollutionRate: 0,
+					minOpenLoopCoverage: 1,
+					minActionGateCoverage: 1,
+					maxEstimatedActionGateTokens: 2_000,
+					maxDurationMs: 10_000,
+					maxParseIssues: 0,
+				},
+				semanticSeedsByQuery: {
+					"akasha longitudinal memory eval": [
+						{ eventId: "evt-long-failure-lesson", score: 0.9, similarity: 0.92 },
+						{ eventId: "evt-narrow-pref", score: 0.85, similarity: 0.89 },
+						{ eventId: "evt-current-artifact", score: 0.8, similarity: 0.86 },
+						{ eventId: "evt-current-open-loop", score: 0.75, similarity: 0.83 },
+					],
+				},
+				cases: [
+					{
+						name: "cross-day coding memory",
+						queryText: "akasha longitudinal memory eval",
+						limit: 8,
+						mustRecall: [
+							"evt-long-failure-lesson",
+							"evt-narrow-pref",
+							"evt-current-artifact",
+							"evt-current-open-loop",
+						],
+						mustNotRecall: ["evt-old-pnpm-pref"],
+						expectOpenLoops: ["evt-current-artifact:artifact_changed_without_validation"],
+						expectActionGateIncludes: [
+							"Validate longitudinal eval fixture and focused tests",
+							"packages/coding-agent/src/core/akasha/longitudinal-memory-eval.ts",
+						],
+					},
+				],
+			}),
+			"utf-8",
+		);
+
+		const handled = await handleAkashaEntrypointCommand(["dogfood", "gate", "--corpus", corpusPath], projectDir);
+
+		expect(handled).toBe(true);
+		expect(logs.join("\n")).toContain("Akasha dogfood memory eval passed.");
+	});
+
+	it("runs the dogfood gate against project event logs", async () => {
+		await handleAkashaEntrypointCommand(["init"], projectDir);
+		seedAkashaLog(projectDir);
+		logs = [];
+
+		const handled = await handleAkashaEntrypointCommand(["dogfood", "gate", "--scope", "project"], projectDir);
+
+		expect(handled).toBe(true);
+		expect(logs.join("\n")).toContain("Akasha dogfood memory eval passed.");
+		expect(logs.join("\n")).toContain("Corpora: 1");
 	});
 });
 

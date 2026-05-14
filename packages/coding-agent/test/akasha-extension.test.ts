@@ -173,6 +173,9 @@ describe("Akasha collector extension", () => {
 				"message.agent.completed",
 				"promise.created",
 				"prediction.made",
+				"policy.evaluated",
+				"action_surface.requested",
+				"action_surface.completed",
 				"tool.requested",
 				"tool.completed",
 				"artifact.read",
@@ -184,8 +187,12 @@ describe("Akasha collector extension", () => {
 			lines.some((line) => line.kind === "promise.created" && line.toolCallId === "call-akasha-commitment"),
 		).toBe(true);
 		const completed = lines.find((line) => line.kind === "tool.completed" && line.toolCallId === "call-1");
+		const surfaceRequested = lines.find((line) => line.kind === "action_surface.requested");
+		const surfaceCompleted = lines.find((line) => line.kind === "action_surface.completed");
 		const resultMessage = lines.find((line) => line.kind === "message.tool_result.recorded");
 		expect(completed).toBeDefined();
+		expect(surfaceRequested).toBeDefined();
+		expect(surfaceCompleted?.parentEventIds).toContain(surfaceRequested?.eventId);
 		expect(resultMessage).toBeDefined();
 		expect(resultMessage?.parentEventIds).toContain(completed?.eventId);
 
@@ -409,6 +416,8 @@ describe("Akasha collector extension", () => {
 		const logPath = resolveAkashaEventLogPath({}, agentDir, sessionManager.getSessionId());
 		const contents = readFileSync(logPath, "utf-8");
 		expect(contents).toContain('"kind":"policy.evaluated"');
+		expect(contents).toContain('"kind":"action_surface.requested"');
+		expect(contents).toContain('"kind":"action_surface.failed"');
 		expect(contents).toContain('"kind":"tool.blocked"');
 	});
 

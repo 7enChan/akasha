@@ -1,10 +1,12 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { SettingsManager } from "../src/core/settings-manager.js";
 import { resolveAkashaGatewayConfig } from "../src/gateway/config.js";
+import { AkashaGatewayDeliveryDriver } from "../src/gateway/delivery.js";
 import { parseDotEnv } from "../src/gateway/env.js";
+import { AkashaGatewayEventWriter } from "../src/gateway/events.js";
 import { AkashaGatewayInboxStore } from "../src/gateway/inbox-store.js";
 import { AkashaGatewayLock } from "../src/gateway/lock.js";
 import { AkashaGatewayOutboxStore } from "../src/gateway/outbox-store.js";
@@ -15,7 +17,12 @@ import {
 	writeAkashaGatewayRuntimeStatus,
 } from "../src/gateway/runtime-status.js";
 import { buildAkashaGatewaySystemdUnit } from "../src/gateway/systemd.js";
-import type { AkashaGatewayChatState, AkashaGatewayIncomingMessage } from "../src/gateway/types.js";
+import type {
+	AkashaGatewayChatState,
+	AkashaGatewayIncomingMessage,
+	AkashaGatewayOutgoingMessage,
+	AkashaGatewayPlatformAdapter,
+} from "../src/gateway/types.js";
 
 describe("Akasha gateway core", () => {
 	it("parses .env values without overriding process env precedence", () => {
@@ -155,6 +162,51 @@ describe("Akasha gateway core", () => {
 				"outbox-1",
 			]);
 		});
+	});
+
+	it("audits gateway delivery through presence and action surface events", async () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "akasha-gateway-delivery-"));
+		try {
+			const outbox = new AkashaGatewayOutboxStore(agentDir);
+			const sent: AkashaGatewayOutgoingMessage[] = [];
+			outbox.enqueueText({
+				target: { platform: "telegram", chatId: "1" },
+				text: "hello",
+				outboxId: "outbox-audit-1",
+			});
+			const driver = new AkashaGatewayDeliveryDriver({
+				outbox,
+				adapter: {
+					name: "telegram",
+					start: async () => {},
+					stop: async () => {},
+					sendMessage: async (message) => {
+						sent.push(message);
+						return { messageId: "telegram-message-1" };
+					},
+				} satisfies AkashaGatewayPlatformAdapter,
+				events: new AkashaGatewayEventWriter({
+					agentDir,
+					settings: {
+						eventLogDir: undefined,
+						privacy: { redactSecrets: false },
+					},
+				}),
+			});
+
+			await driver.drainDue(new Date("2026-05-12T00:00:00.000Z"));
+
+			expect(sent).toEqual([{ chatId: "1", text: "hello" }]);
+			const events = readFileSync(join(agentDir, "akasha", "events", "gateway:telegram.jsonl"), "utf-8");
+			expect(events).toContain('"kind":"gateway.presence.updated"');
+			expect(events).toContain('"kind":"policy.evaluated"');
+			expect(events).toContain('"kind":"action_surface.requested"');
+			expect(events).toContain('"kind":"gateway.outbox.sent"');
+			expect(events).toContain('"kind":"action_surface.completed"');
+			expect(events).toContain('"idempotencyKey"');
+		} finally {
+			rmSync(agentDir, { recursive: true, force: true });
+		}
 	});
 
 	it("writes runtime status atomically and tolerates missing or corrupt files", () => {
