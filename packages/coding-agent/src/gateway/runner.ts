@@ -19,11 +19,19 @@ import {
 } from "../core/settings-manager.js";
 import { DefaultAkashaGatewayAgentRunner } from "./agent-runner.js";
 import { type ResolveAkashaGatewayConfigOptions, resolveAkashaGatewayConfig } from "./config.js";
+import { AkashaGatewayDeliveryDriver } from "./delivery.js";
 import { AkashaGatewayEventWriter } from "./events.js";
+import { AKASHA_GATEWAY_INBOX_MAX_ATTEMPTS, AkashaGatewayInboxStore, akashaGatewayMessageKey } from "./inbox-store.js";
 import { AkashaGatewayLock, resolveAkashaGatewayLockPath } from "./lock.js";
 import { AkashaGatewayLogger } from "./logger.js";
-import { extractMediaReferences, splitTelegramText, validateReadableMediaPath } from "./media.js";
+import { extractMediaReferences, splitTelegramText } from "./media.js";
+import { AkashaGatewayOutboxStore } from "./outbox-store.js";
 import { AkashaGatewayQueue } from "./queue.js";
+import {
+	type AkashaGatewayPlatformRuntimeState,
+	readAkashaGatewayRuntimeStatus,
+	writeAkashaGatewayRuntimeStatus,
+} from "./runtime-status.js";
 import { AkashaGatewaySessionStore } from "./session-store.js";
 import { TelegramGatewayAdapter } from "./telegram-adapter.js";
 import { TelegramClient } from "./telegram-client.js";
@@ -32,8 +40,10 @@ import type {
 	AkashaGatewayChatState,
 	AkashaGatewayCommandMenuItem,
 	AkashaGatewayConfig,
+	AkashaGatewayInboxEvent,
 	AkashaGatewayIncomingMessage,
 	AkashaGatewayMessageHandler,
+	AkashaGatewayOutboxEvent,
 	AkashaGatewayPlatformAdapter,
 } from "./types.js";
 
@@ -65,8 +75,16 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 	private readonly queue = new AkashaGatewayQueue();
 	private readonly events: AkashaGatewayEventWriter;
 	private readonly lock: AkashaGatewayLock;
+	private readonly inbox: AkashaGatewayInboxStore;
+	private readonly outbox: AkashaGatewayOutboxStore;
+	private readonly delivery: AkashaGatewayDeliveryDriver;
+	private readonly runtimeStartedAt = new Date().toISOString();
 	private adapter: AkashaGatewayPlatformAdapter;
 	private callbackTimer: NodeJS.Timeout | undefined;
+	private inboxTimer: NodeJS.Timeout | undefined;
+	private outboxTimer: NodeJS.Timeout | undefined;
+	private inboxDrainPromise: Promise<void> | undefined;
+	private outboxDrainPromise: Promise<void> | undefined;
 
 	constructor(private readonly options: AkashaGatewayRunnerOptions) {
 		this.logger = options.logger ?? new AkashaGatewayLogger(options.config.agentDir);
@@ -80,12 +98,24 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 				privacy: options.settings.privacy,
 			},
 		});
-		this.lock = options.lock ?? new AkashaGatewayLock(resolveAkashaGatewayLockPath(options.config.agentDir));
+		this.lock =
+			options.lock ??
+			new AkashaGatewayLock(resolveAkashaGatewayLockPath(options.config.agentDir), {
+				telegramBotToken: options.config.telegram.botToken,
+			});
 		this.adapter = options.adapter ?? this.createTelegramAdapter();
+		this.inbox = new AkashaGatewayInboxStore(options.config.agentDir);
+		this.outbox = new AkashaGatewayOutboxStore(options.config.agentDir);
+		this.delivery = new AkashaGatewayDeliveryDriver({
+			outbox: this.outbox,
+			adapter: this.adapter,
+			events: this.events,
+		});
 	}
 
 	async start(): Promise<void> {
 		this.lock.acquire();
+		this.writeRuntimeStatus("starting", "starting");
 		await this.registerCommandMenu();
 		this.events.appendGateway("telegram", {
 			kind: "gateway.started",
@@ -98,6 +128,9 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 			ttlPolicy: "long_term",
 			importance: 0.7,
 		});
+		this.startDrainTimers();
+		await this.drainInbox().catch((error) => this.recordRuntimeError(error, "Initial inbox drain failed"));
+		await this.drainOutbox().catch((error) => this.recordRuntimeError(error, "Initial outbox drain failed"));
 		this.callbackTimer = setInterval(() => {
 			void this.deliverDueCallbacks().catch((error) =>
 				this.logger.warn(`Callback delivery failed: ${errorMessage(error)}`),
@@ -106,6 +139,7 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 		await this.deliverDueCallbacks().catch((error) =>
 			this.logger.warn(`Initial callback delivery failed: ${errorMessage(error)}`),
 		);
+		this.writeRuntimeStatus("running", platformRuntimeState(this.options.config.telegram.mode));
 		try {
 			await this.adapter.start();
 		} finally {
@@ -114,9 +148,18 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 	}
 
 	async stop(): Promise<void> {
+		this.writeRuntimeStatus("stopping", platformRuntimeState(this.options.config.telegram.mode));
 		if (this.callbackTimer) {
 			clearInterval(this.callbackTimer);
 			this.callbackTimer = undefined;
+		}
+		if (this.inboxTimer) {
+			clearInterval(this.inboxTimer);
+			this.inboxTimer = undefined;
+		}
+		if (this.outboxTimer) {
+			clearInterval(this.outboxTimer);
+			this.outboxTimer = undefined;
 		}
 		await this.adapter.stop().catch(() => undefined);
 		this.events.appendGateway("telegram", {
@@ -127,24 +170,18 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 			ttlPolicy: "long_term",
 			importance: 0.6,
 		});
+		this.writeRuntimeStatus("stopped", "stopped");
 		this.lock.release();
 	}
 
 	async handle(message: AkashaGatewayIncomingMessage): Promise<void> {
 		const chat = this.sessionStore.getChat(message.platform, message.chatId, this.options.config.defaultCwd);
-		if (typeof message.updateId === "number") {
-			this.sessionStore.setLastUpdateId(
-				message.platform,
-				message.chatId,
-				message.updateId,
-				this.options.config.defaultCwd,
-			);
-		}
+		const messageKey = akashaGatewayMessageKey(message);
 		this.events.appendForChat(chat, {
 			kind: "gateway.update.received",
 			subjectId: "telegram.update",
 			objectId: message.messageId,
-			sourceKey: `gateway-update:${message.platform}:${message.updateId ?? message.messageId}`,
+			sourceKey: `gateway-update:${messageKey}`,
 			payload: safeMessagePayload(message),
 			ttlPolicy: "long_term",
 			importance: 0.45,
@@ -165,71 +202,50 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 				ttlPolicy: "long_term",
 				importance: 0.75,
 			});
-			await this.adapter.sendMessage({
-				chatId: message.chatId,
-				text: "Akasha gateway is not configured for this Telegram user.",
-			});
+			await this.sendGatewayText(
+				chat,
+				"Akasha gateway is not configured for this Telegram user.",
+				`${messageKey}:rejected`,
+			);
+			this.recordLastUpdate(message);
 			return;
 		}
 
 		const command = parseGatewayCommand(message.text);
 		if (command) {
-			await this.handleCommand(chat, message, command);
+			await this.handleJournaledCommand(chat, message, command, messageKey);
+			this.recordLastUpdate(message);
 			return;
 		}
 
+		const queued = this.inbox.enqueue({ chat, message, messageKey, itemKind: "message" });
+		if (queued.enqueued) {
+			this.emitInboxQueued(queued.record);
+		}
+		if (queued.record.state === "succeeded" || queued.record.state === "dead_letter") {
+			this.recordLastUpdate(message);
+			this.writeRuntimeStatus("running", platformRuntimeState(this.options.config.telegram.mode));
+			return;
+		}
 		this.events.appendForChat(chat, {
 			kind: "gateway.message.accepted",
 			subjectId: "telegram.message",
 			objectId: message.messageId,
-			sourceKey: `gateway-message-accepted:${message.platform}:${message.messageId}`,
+			sourceKey: `gateway-message-accepted:${messageKey}`,
 			payload: safeMessagePayload(message),
 			ttlPolicy: "long_term",
 			importance: 0.65,
 		});
-		void this.queue.enqueue(chat.chatId, async () => {
-			const stopTypingIndicator = this.startTypingIndicator(chat.chatId);
-			try {
-				const result = await this.agentRunner.run({ chat, message });
-				await this.deliverAgentReply(chat, result.text);
-				this.events.appendForChat(chat, {
-					kind: "gateway.reply.sent",
-					subjectId: "akasha.gateway",
-					objectId: result.sessionId,
-					sourceKey: `gateway-reply-sent:${message.platform}:${message.messageId}:${result.sessionId}`,
-					payload: {
-						messageId: message.messageId,
-						sessionId: result.sessionId,
-						sessionFile: result.sessionFile,
-						textLength: result.text.length,
-					},
-					ttlPolicy: "long_term",
-					importance: 0.7,
-				});
-			} catch (error) {
-				this.events.appendForChat(chat, {
-					kind: "gateway.delivery.failed",
-					subjectId: "akasha.gateway",
-					objectId: message.messageId,
-					sourceKey: `gateway-agent-failed:${message.platform}:${message.messageId}`,
-					payload: {
-						reason: errorMessage(error),
-						messageId: message.messageId,
-					},
-					ttlPolicy: "long_term",
-					importance: 0.9,
-				});
-				await this.adapter.sendMessage({ chatId: chat.chatId, text: `Akasha failed: ${errorMessage(error)}` });
-			} finally {
-				stopTypingIndicator();
-			}
-		});
+		void this.drainInbox().catch((error) => this.recordRuntimeError(error, "Gateway inbox drain failed"));
+		this.recordLastUpdate(message);
 	}
 
 	statusText(): string {
 		const queueItems = this.countDaemonQueueItems();
 		const runnable = this.countRunnableCallbacks();
 		const chats = this.sessionStore.listChats().length;
+		const inboxCounts = this.inbox.counts();
+		const outboxCounts = this.outbox.counts();
 		return [
 			"Akasha gateway status",
 			`- mode: ${this.options.config.telegram.mode}`,
@@ -237,21 +253,55 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 			`- default cwd: ${this.options.config.defaultCwd}`,
 			`- chats: ${chats}`,
 			`- busy chats: ${this.queue.pendingKeys().length}`,
+			`- pending inbox: ${inboxCounts.pending}`,
+			`- pending outbox: ${outboxCounts.pending}`,
+			`- dead letters: ${inboxCounts.deadLetters + outboxCounts.deadLetters}`,
 			`- daemon queue items: ${queueItems}`,
 			`- runnable callbacks: ${runnable}`,
 		].join("\n");
+	}
+
+	private async handleJournaledCommand(
+		chat: AkashaGatewayChatState,
+		message: AkashaGatewayIncomingMessage,
+		command: { name: string; args: string },
+		messageKey: string,
+	): Promise<void> {
+		const queued = this.inbox.enqueue({ chat, message, messageKey, itemKind: "command" });
+		if (queued.enqueued) this.emitInboxQueued(queued.record);
+		if (
+			queued.record.state === "running" ||
+			queued.record.state === "succeeded" ||
+			queued.record.state === "dead_letter"
+		) {
+			return;
+		}
+		const running = this.inbox.markRunning(messageKey);
+		this.emitInboxRunning(running);
+		try {
+			await this.handleCommand(chat, message, command, messageKey);
+			this.inbox.markSucceeded(messageKey);
+		} catch (error) {
+			if (running.attempt >= AKASHA_GATEWAY_INBOX_MAX_ATTEMPTS) {
+				this.emitInboxDeadLetter(this.inbox.markDeadLetter(messageKey, errorMessage(error)));
+			} else {
+				this.inbox.markFailed(messageKey, errorMessage(error));
+			}
+			throw error;
+		}
 	}
 
 	private async handleCommand(
 		chat: AkashaGatewayChatState,
 		message: AkashaGatewayIncomingMessage,
 		command: { name: string; args: string },
+		messageKey: string,
 	): Promise<void> {
 		this.events.appendForChat(chat, {
 			kind: "gateway.command.executed",
 			subjectId: "telegram.command",
 			objectId: command.name,
-			sourceKey: `gateway-command:${message.platform}:${message.messageId}:${command.name}`,
+			sourceKey: `gateway-command:${messageKey}:${command.name}`,
 			payload: {
 				command: command.name,
 				args: command.args,
@@ -261,58 +311,70 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 			importance: 0.65,
 		});
 		if (command.name === "start") {
-			await this.adapter.sendMessage({
-				chatId: chat.chatId,
-				text: "Akasha gateway is online. Use /status, /new, /setcwd <path>, or send a task.",
-			});
+			await this.sendGatewayText(
+				chat,
+				"Akasha gateway is online. Use /status, /new, /setcwd <path>, or send a task.",
+				`${messageKey}:command:start`,
+			);
 			return;
 		}
 		if (command.name === "status") {
-			await this.adapter.sendMessage({ chatId: chat.chatId, text: this.statusText() });
+			await this.sendGatewayText(chat, this.statusText(), `${messageKey}:command:status`);
 			return;
 		}
 		if (command.name === "new") {
-			this.sessionStore.resetSession(chat.platform, chat.chatId, this.options.config.defaultCwd);
-			await this.adapter.sendMessage({ chatId: chat.chatId, text: "Started a new Akasha gateway session." });
+			this.sessionStore.resetSession(chat.platform, chat.chatId, this.options.config.defaultCwd, messageKey);
+			await this.sendGatewayText(chat, "Started a new Akasha gateway session.", `${messageKey}:command:new`);
 			return;
 		}
 		if (command.name === "stop") {
 			const stopped = await this.agentRunner.stop(chat.chatId);
-			await this.adapter.sendMessage({
-				chatId: chat.chatId,
-				text: stopped ? "Stopped the active Akasha run." : "No active Akasha run for this chat.",
-			});
+			await this.sendGatewayText(
+				chat,
+				stopped ? "Stopped the active Akasha run." : "No active Akasha run for this chat.",
+				`${messageKey}:command:stop`,
+			);
 			return;
 		}
 		if (command.name === "model") {
-			await this.adapter.sendMessage({
-				chatId: chat.chatId,
-				text: await this.handleModelCommand(chat, command.args),
-			});
+			await this.sendGatewayText(
+				chat,
+				await this.handleModelCommand(chat, command.args),
+				`${messageKey}:command:model`,
+			);
 			return;
 		}
 		if (command.name === "thinking") {
-			await this.adapter.sendMessage({
-				chatId: chat.chatId,
-				text: await this.handleThinkingCommand(chat, command.args),
-			});
+			await this.sendGatewayText(
+				chat,
+				await this.handleThinkingCommand(chat, command.args),
+				`${messageKey}:command:thinking`,
+			);
 			return;
 		}
 		if (command.name === "timeline") {
-			await this.adapter.sendMessage({ chatId: chat.chatId, text: this.handleTimelineCommand(chat, command.args) });
+			await this.sendGatewayText(
+				chat,
+				this.handleTimelineCommand(chat, command.args),
+				`${messageKey}:command:timeline`,
+			);
 			return;
 		}
 		if (command.name === "setcwd") {
 			const cwd = resolve(command.args.trim());
 			if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
-				await this.adapter.sendMessage({ chatId: chat.chatId, text: `Directory not found: ${cwd}` });
+				await this.sendGatewayText(chat, `Directory not found: ${cwd}`, `${messageKey}:command:setcwd:not-found`);
 				return;
 			}
 			this.sessionStore.setCwd(chat.platform, chat.chatId, cwd, this.options.config.defaultCwd);
-			await this.adapter.sendMessage({ chatId: chat.chatId, text: `Akasha gateway cwd set to ${cwd}` });
+			await this.sendGatewayText(chat, `Akasha gateway cwd set to ${cwd}`, `${messageKey}:command:setcwd`);
 			return;
 		}
-		await this.adapter.sendMessage({ chatId: chat.chatId, text: `Unknown Akasha gateway command: /${command.name}` });
+		await this.sendGatewayText(
+			chat,
+			`Unknown Akasha gateway command: /${command.name}`,
+			`${messageKey}:command:unknown`,
+		);
 	}
 
 	private async handleModelCommand(chat: AkashaGatewayChatState, args: string): Promise<string> {
@@ -373,21 +435,157 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 		return [`Akasha timeline: last ${events.length} events`, ...events.map(formatTimelineEvent)].join("\n");
 	}
 
-	private async deliverAgentReply(chat: AkashaGatewayChatState, text: string): Promise<void> {
+	private enqueueAgentReply(chat: AkashaGatewayChatState, text: string, sourceMessageKey: string): string[] {
 		const extracted = extractMediaReferences(text);
+		const outboxIds: string[] = [];
+		let index = 0;
 		for (const chunk of splitTelegramText(extracted.text || "(No text response.)")) {
-			await this.adapter.sendMessage({ chatId: chat.chatId, text: chunk });
+			const queued = this.outbox.enqueueText({
+				target: { platform: chat.platform, chatId: chat.chatId },
+				outboxId: `${sourceMessageKey}:reply:text:${index}`,
+				sourceMessageKey,
+				text: chunk,
+			});
+			if (queued.enqueued) this.emitOutboxQueued(queued.record);
+			outboxIds.push(queued.record.outboxId);
+			index++;
 		}
+		let mediaIndex = 0;
 		for (const media of extracted.media) {
-			const readable = validateReadableMediaPath(media.path);
-			if (!readable.ok || !this.adapter.sendMedia) {
-				await this.adapter.sendMessage({
-					chatId: chat.chatId,
-					text: `Could not send media ${media.path}: ${readable.ok ? "adapter does not support media" : readable.reason}`,
-				});
-				continue;
-			}
-			await this.adapter.sendMedia(chat.chatId, media.path);
+			const queued = this.outbox.enqueueMedia({
+				target: { platform: chat.platform, chatId: chat.chatId },
+				outboxId: `${sourceMessageKey}:reply:media:${mediaIndex}`,
+				sourceMessageKey,
+				filePath: media.path,
+			});
+			if (queued.enqueued) this.emitOutboxQueued(queued.record);
+			outboxIds.push(queued.record.outboxId);
+			mediaIndex++;
+		}
+		return outboxIds;
+	}
+
+	private async sendGatewayText(
+		chat: AkashaGatewayChatState,
+		text: string,
+		sourceMessageKey: string,
+	): Promise<string[]> {
+		const outboxIds: string[] = [];
+		let index = 0;
+		for (const chunk of splitTelegramText(text)) {
+			const queued = this.outbox.enqueueText({
+				target: { platform: chat.platform, chatId: chat.chatId },
+				outboxId: `${sourceMessageKey}:text:${index}`,
+				sourceMessageKey,
+				text: chunk,
+			});
+			if (queued.enqueued) this.emitOutboxQueued(queued.record);
+			outboxIds.push(queued.record.outboxId);
+			index++;
+		}
+		await this.drainOutbox();
+		return outboxIds;
+	}
+
+	async drainInbox(): Promise<void> {
+		if (this.inboxDrainPromise) return this.inboxDrainPromise;
+		this.inboxDrainPromise = this.runInboxDrain().finally(() => {
+			this.inboxDrainPromise = undefined;
+		});
+		return this.inboxDrainPromise;
+	}
+
+	async drainOutbox(): Promise<void> {
+		if (this.outboxDrainPromise) return this.outboxDrainPromise;
+		this.outboxDrainPromise = this.delivery.drainDue().finally(() => {
+			this.outboxDrainPromise = undefined;
+			this.writeRuntimeStatus("running", platformRuntimeState(this.options.config.telegram.mode));
+		});
+		return this.outboxDrainPromise;
+	}
+
+	private async runInboxDrain(): Promise<void> {
+		for (const candidate of this.inbox.listDeadLetterCandidates()) {
+			this.emitInboxDeadLetter(this.inbox.markDeadLetter(candidate.messageKey, "inbox retry limit exceeded"));
+		}
+		const runnable = this.inbox.listRunnable();
+		await Promise.all(
+			runnable.map((record) => {
+				const chatId = record.chat?.chatId ?? record.message?.chatId;
+				if (!chatId) {
+					this.emitInboxDeadLetter(this.inbox.markDeadLetter(record.messageKey, "inbox item missing chat"));
+					return Promise.resolve();
+				}
+				return this.queue.enqueue(chatId, async () => this.processInboxRecord(record.messageKey));
+			}),
+		);
+		this.writeRuntimeStatus("running", platformRuntimeState(this.options.config.telegram.mode));
+	}
+
+	private async processInboxRecord(messageKey: string): Promise<void> {
+		const current = this.inbox.project().get(messageKey);
+		if (!current || current.state === "succeeded" || current.state === "dead_letter") return;
+		if (current.itemKind === "command") {
+			this.emitInboxDeadLetter(this.inbox.markDeadLetter(messageKey, "command inbox items are not replayed"));
+			return;
+		}
+		if (current.attempt >= AKASHA_GATEWAY_INBOX_MAX_ATTEMPTS) {
+			this.emitInboxDeadLetter(this.inbox.markDeadLetter(messageKey, "inbox retry limit exceeded"));
+			return;
+		}
+		const running = this.inbox.markRunning(messageKey);
+		this.emitInboxRunning(running);
+		const chat = running.chat;
+		const message = running.message;
+		if (!chat || !message) {
+			this.emitInboxDeadLetter(this.inbox.markDeadLetter(messageKey, "inbox item missing message or chat"));
+			return;
+		}
+		const stopTypingIndicator = this.startTypingIndicator(chat.chatId);
+		try {
+			const result = await this.agentRunner.run({ chat, message });
+			const outboxIds = this.enqueueAgentReply(chat, result.text, messageKey);
+			this.inbox.markSucceeded(messageKey, outboxIds);
+			this.events.appendForChat(chat, {
+				kind: "gateway.reply.sent",
+				subjectId: "akasha.gateway",
+				objectId: result.sessionId,
+				sourceKey: `gateway-reply-sent:${messageKey}:${result.sessionId}`,
+				payload: {
+					messageId: message.messageId,
+					sessionId: result.sessionId,
+					sessionFile: result.sessionFile,
+					textLength: result.text.length,
+					outboxIds,
+				},
+				ttlPolicy: "long_term",
+				importance: 0.7,
+			});
+			await this.drainOutbox();
+		} catch (error) {
+			const reason = errorMessage(error);
+			const terminal =
+				running.attempt >= AKASHA_GATEWAY_INBOX_MAX_ATTEMPTS
+					? this.inbox.markDeadLetter(messageKey, reason)
+					: this.inbox.markFailed(messageKey, reason);
+			if (terminal.state === "dead_letter") this.emitInboxDeadLetter(terminal);
+			this.events.appendForChat(chat, {
+				kind: "gateway.delivery.failed",
+				subjectId: "akasha.gateway",
+				objectId: message.messageId,
+				sourceKey: `gateway-agent-failed:${messageKey}:${running.attempt}`,
+				payload: {
+					reason,
+					messageId: message.messageId,
+					attempt: running.attempt,
+					state: terminal.state,
+				},
+				ttlPolicy: "long_term",
+				importance: 0.9,
+			});
+			await this.sendGatewayText(chat, `Akasha failed: ${reason}`, `${messageKey}:agent-error:${running.attempt}`);
+		} finally {
+			stopTypingIndicator();
 		}
 	}
 
@@ -413,9 +611,141 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 		}
 	}
 
+	private startDrainTimers(): void {
+		if (!this.inboxTimer) {
+			this.inboxTimer = setInterval(() => {
+				void this.drainInbox().catch((error) => this.recordRuntimeError(error, "Gateway inbox drain failed"));
+			}, 2000);
+		}
+		if (!this.outboxTimer) {
+			this.outboxTimer = setInterval(() => {
+				void this.drainOutbox().catch((error) => this.recordRuntimeError(error, "Gateway outbox drain failed"));
+			}, 1000);
+		}
+	}
+
+	private emitInboxQueued(record: AkashaGatewayInboxEvent): void {
+		if (!record.chat) return;
+		this.events.appendForChat(record.chat, {
+			kind: "gateway.message.queued",
+			subjectId: "akasha.gateway.inbox",
+			objectId: record.message?.messageId,
+			sourceKey: `gateway-message-queued:${record.messageKey}`,
+			payload: {
+				messageKey: record.messageKey,
+				itemKind: record.itemKind,
+				messageId: record.message?.messageId,
+				attempt: record.attempt,
+				sourceEventId: record.sourceEventId,
+			},
+			ttlPolicy: "long_term",
+			importance: 0.65,
+		});
+	}
+
+	private emitInboxRunning(record: AkashaGatewayInboxEvent): void {
+		if (!record.chat) return;
+		this.events.appendForChat(record.chat, {
+			kind: "gateway.message.running",
+			subjectId: "akasha.gateway.inbox",
+			objectId: record.message?.messageId,
+			sourceKey: `gateway-message-running:${record.messageKey}:${record.attempt}`,
+			payload: {
+				messageKey: record.messageKey,
+				itemKind: record.itemKind,
+				messageId: record.message?.messageId,
+				attempt: record.attempt,
+				leaseExpiresAt: record.leaseExpiresAt,
+				sourceEventId: record.sourceEventId,
+			},
+			ttlPolicy: "long_term",
+			importance: 0.65,
+		});
+	}
+
+	private emitInboxDeadLetter(record: AkashaGatewayInboxEvent): void {
+		if (!record.chat) return;
+		this.events.appendForChat(record.chat, {
+			kind: "gateway.message.dead_letter",
+			subjectId: "akasha.gateway.inbox",
+			objectId: record.message?.messageId,
+			sourceKey: `gateway-message-dead-letter:${record.messageKey}`,
+			payload: {
+				messageKey: record.messageKey,
+				itemKind: record.itemKind,
+				messageId: record.message?.messageId,
+				attempt: record.attempt,
+				error: record.error,
+				sourceEventId: record.sourceEventId,
+			},
+			ttlPolicy: "long_term",
+			importance: 0.9,
+		});
+	}
+
+	private emitOutboxQueued(record: AkashaGatewayOutboxEvent): void {
+		this.events.appendGateway(record.target.platform, {
+			kind: "gateway.outbox.queued",
+			subjectId: "akasha.gateway.outbox",
+			objectId: record.outboxId,
+			sourceKey: `gateway-outbox-queued:${record.outboxId}`,
+			payload: {
+				outboxId: record.outboxId,
+				chatId: record.target.chatId,
+				kind: record.kind,
+				sourceMessageKey: record.sourceMessageKey,
+				sourceEventId: record.sourceEventId,
+			},
+			ttlPolicy: "long_term",
+			importance: 0.6,
+		});
+	}
+
+	private writeRuntimeStatus(
+		gatewayState: "starting" | "running" | "stopping" | "stopped" | "error",
+		platformState: AkashaGatewayPlatformRuntimeState,
+		lastError?: string,
+	): void {
+		const inboxCounts = this.inbox.counts();
+		const outboxCounts = this.outbox.counts();
+		const previous = readAkashaGatewayRuntimeStatus(this.options.config.agentDir);
+		writeAkashaGatewayRuntimeStatus(this.options.config.agentDir, {
+			pid: process.pid,
+			startedAt: this.runtimeStartedAt,
+			updatedAt: new Date().toISOString(),
+			gatewayState,
+			platformState,
+			mode: this.options.config.telegram.mode,
+			activeChats: this.queue.pendingKeys(),
+			pendingInbox: inboxCounts.pending,
+			pendingOutbox: outboxCounts.pending,
+			deadLetters: inboxCounts.deadLetters + outboxCounts.deadLetters,
+			lastUpdateId: this.sessionStore.getLastUpdateId("telegram"),
+			lastError: lastError ?? previous?.lastError,
+		});
+	}
+
+	private recordRuntimeError(error: unknown, prefix: string): void {
+		const message = `${prefix}: ${errorMessage(error)}`;
+		this.logger.warn(message);
+		this.writeRuntimeStatus("error", "error", message);
+	}
+
+	private recordLastUpdate(message: AkashaGatewayIncomingMessage): void {
+		if (typeof message.updateId !== "number") return;
+		this.sessionStore.setLastUpdateId(
+			message.platform,
+			message.chatId,
+			message.updateId,
+			this.options.config.defaultCwd,
+		);
+		this.writeRuntimeStatus("running", platformRuntimeState(this.options.config.telegram.mode));
+	}
+
 	private async deliverDueCallbacks(): Promise<void> {
 		const homeChatId = this.options.config.telegram.homeChatId;
 		if (!homeChatId) return;
+		const chat = this.sessionStore.getChat("telegram", String(homeChatId), this.options.config.defaultCwd);
 		for (const session of buildAkashaSessionIndex({
 			agentDir: this.options.config.agentDir,
 			eventLogDir: this.options.settings.eventLogDir,
@@ -430,31 +760,59 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 			});
 			for (const event of result.dispatched) {
 				const summary = typeof event.payload.summary === "string" ? event.payload.summary : event.eventId;
+				const callbackId = typeof event.payload.callbackId === "string" ? event.payload.callbackId : event.eventId;
 				const safeForAutoRun = event.payload.safeForAutoRun === true;
 				const autoRun = this.options.config.callbackMode === "auto_run_safe" && safeForAutoRun;
-				await this.adapter.sendMessage({
-					chatId: String(homeChatId),
-					text: formatGatewayCallbackDeliveryText(this.options.config.callbackMode, summary, safeForAutoRun),
-				});
-				const autoRunResult = autoRun ? await this.runGatewayCallbackAgent(homeChatId, event, summary) : undefined;
+				const outboxIds = await this.sendGatewayText(
+					chat,
+					formatGatewayCallbackDeliveryText(this.options.config.callbackMode, summary, safeForAutoRun),
+					`callback:${callbackId}:notice`,
+				);
+				let inboxMessageKey: string | undefined;
+				if (autoRun) {
+					inboxMessageKey = `callback:${callbackId}:auto-run`;
+					const message: AkashaGatewayIncomingMessage = {
+						platform: "telegram",
+						chatId: chat.chatId,
+						messageId: inboxMessageKey,
+						userId: homeChatId,
+						text: formatGatewayCallbackAgentPrompt(event, summary),
+						receivedTime: new Date().toISOString(),
+						raw: {
+							source: "akasha.gateway.callback",
+							dispatchEventId: event.eventId,
+							callbackId,
+						},
+					};
+					const queued = this.inbox.enqueue({
+						chat,
+						message,
+						messageKey: inboxMessageKey,
+						itemKind: "callback",
+						sourceEventId: event.eventId,
+					});
+					if (queued.enqueued) this.emitInboxQueued(queued.record);
+					await this.drainInbox();
+				}
+				if (this.options.config.callbackMode === "notify_only" && !this.outboxIdsSent(outboxIds)) {
+					continue;
+				}
 				this.events.appendGateway("telegram", {
 					kind: "gateway.callback.delivered",
 					subjectId: "akasha.gateway",
 					objectId: String(homeChatId),
 					sourceKey: `gateway-callback-delivered:${event.eventId}`,
-					parentEventIds: autoRunResult?.eventIds?.length
-						? [event.eventId, ...autoRunResult.eventIds]
-						: [event.eventId],
+					parentEventIds: [event.eventId],
 					payload: {
 						chatId: String(homeChatId),
 						dispatchEventId: event.eventId,
-						callbackId: event.payload.callbackId,
+						callbackId,
 						summary,
 						callbackMode: this.options.config.callbackMode,
 						safeForAutoRun,
 						autoRunAttempted: autoRun,
-						autoRunSessionId: autoRunResult?.sessionId,
-						autoRunTextLength: autoRunResult?.textLength,
+						inboxMessageKey,
+						outboxIds,
 					},
 					ttlPolicy: "long_term",
 					importance: 0.8,
@@ -463,83 +821,9 @@ export class AkashaGatewayRunner implements AkashaGatewayMessageHandler {
 		}
 	}
 
-	private async runGatewayCallbackAgent(
-		homeChatId: number,
-		dispatchEvent: AkashaEvent,
-		summary: string,
-	): Promise<{ sessionId: string; textLength: number; eventIds: string[] } | undefined> {
-		const chatId = String(homeChatId);
-		const chat = this.sessionStore.getChat("telegram", chatId, this.options.config.defaultCwd);
-		const messageId = `callback:${dispatchEvent.eventId}`;
-		const prompt = formatGatewayCallbackAgentPrompt(dispatchEvent, summary);
-		try {
-			const stopTypingIndicator = this.startTypingIndicator(chatId);
-			try {
-				const result = await this.agentRunner.run({
-					chat,
-					message: {
-						platform: "telegram",
-						chatId,
-						messageId,
-						userId: homeChatId,
-						text: prompt,
-						receivedTime: new Date().toISOString(),
-						raw: {
-							source: "akasha.gateway.callback",
-							dispatchEventId: dispatchEvent.eventId,
-							callbackId: dispatchEvent.payload.callbackId,
-						},
-					},
-				});
-				await this.deliverAgentReply(chat, result.text);
-				const replyEvent = this.events.appendForChat(chat, {
-					kind: "gateway.reply.sent",
-					subjectId: "akasha.gateway",
-					objectId: result.sessionId,
-					sourceKey: `gateway-callback-auto-run-reply:${dispatchEvent.eventId}:${result.sessionId}`,
-					parentEventIds: [dispatchEvent.eventId],
-					payload: {
-						messageId,
-						sessionId: result.sessionId,
-						sessionFile: result.sessionFile,
-						textLength: result.text.length,
-						callbackId: dispatchEvent.payload.callbackId,
-						dispatchEventId: dispatchEvent.eventId,
-					},
-					ttlPolicy: "long_term",
-					importance: 0.75,
-				});
-				return {
-					sessionId: result.sessionId,
-					textLength: result.text.length,
-					eventIds: [replyEvent.eventId],
-				};
-			} finally {
-				stopTypingIndicator();
-			}
-		} catch (error) {
-			const failedEvent = this.events.appendForChat(chat, {
-				kind: "gateway.delivery.failed",
-				subjectId: "akasha.gateway",
-				objectId: messageId,
-				sourceKey: `gateway-callback-auto-run-failed:${dispatchEvent.eventId}`,
-				parentEventIds: [dispatchEvent.eventId],
-				payload: {
-					reason: errorMessage(error),
-					messageId,
-					callbackId: dispatchEvent.payload.callbackId,
-					dispatchEventId: dispatchEvent.eventId,
-				},
-				ttlPolicy: "long_term",
-				importance: 0.9,
-			});
-			await this.adapter.sendMessage({ chatId, text: `Akasha callback auto-run failed: ${errorMessage(error)}` });
-			return {
-				sessionId: "",
-				textLength: 0,
-				eventIds: [failedEvent.eventId],
-			};
-		}
+	private outboxIdsSent(outboxIds: string[]): boolean {
+		const projection = this.outbox.project();
+		return outboxIds.length > 0 && outboxIds.every((id) => projection.get(id)?.state === "sent");
 	}
 
 	private createTelegramAdapter(): TelegramGatewayAdapter {
@@ -678,7 +962,9 @@ function formatTimelineEvent(event: AkashaEvent): string {
 }
 
 function callbackDispatchModeForGateway(mode: AkashaGatewayCallbackMode): AkashaCallbackDispatchMode {
-	return mode === "notify_only" ? "record_only" : "agent_prompt_file";
+	if (mode === "notify_only") return "record_only";
+	if (mode === "auto_run_safe") return "auto_run_safe";
+	return "agent_prompt_file";
 }
 
 function formatGatewayCallbackDeliveryText(
@@ -753,4 +1039,8 @@ function safeMessagePayload(message: AkashaGatewayIncomingMessage): Record<strin
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+function platformRuntimeState(mode: "polling" | "webhook"): AkashaGatewayPlatformRuntimeState {
+	return mode === "polling" ? "polling" : "webhook";
 }

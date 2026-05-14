@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { type TelegramApiError, TelegramClient } from "../src/gateway/telegram-client.js";
+import {
+	isRetryableTelegramError,
+	TelegramApiError,
+	type TelegramApiError as TelegramApiErrorShape,
+	TelegramClient,
+} from "../src/gateway/telegram-client.js";
 
 type TelegramFetch = NonNullable<ConstructorParameters<typeof TelegramClient>[0]["fetchImpl"]>;
 
@@ -67,7 +72,16 @@ describe("TelegramClient", () => {
 			name: "TelegramApiError",
 			status: 429,
 			retryAfterSeconds: 7,
-		} satisfies Partial<TelegramApiError>);
+		} satisfies Partial<TelegramApiErrorShape>);
+	});
+
+	it("classifies 5xx and network errors as retryable", () => {
+		expect(isRetryableTelegramError(new TelegramApiError("server error", 500))).toBe(true);
+		expect(isRetryableTelegramError(new Error("fetch failed"))).toBe(true);
+	});
+
+	it("classifies malformed request errors as non-retryable", () => {
+		expect(isRetryableTelegramError(new TelegramApiError("Bad Request", 400))).toBe(false);
 	});
 });
 

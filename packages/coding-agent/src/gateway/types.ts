@@ -67,6 +67,10 @@ export interface AkashaGatewayOutgoingMessage {
 	text: string;
 }
 
+export interface AkashaGatewayDeliveryReceipt {
+	messageId?: string;
+}
+
 export interface AkashaGatewayCommandMenuItem {
 	command: string;
 	description: string;
@@ -76,10 +80,10 @@ export interface AkashaGatewayPlatformAdapter {
 	name: AkashaGatewayPlatform;
 	start(): Promise<void>;
 	stop(): Promise<void>;
-	sendMessage(message: AkashaGatewayOutgoingMessage): Promise<void>;
+	sendMessage(message: AkashaGatewayOutgoingMessage): Promise<AkashaGatewayDeliveryReceipt | undefined>;
 	sendChatAction?(chatId: string, action?: "typing"): Promise<void>;
 	setCommands?(commands: AkashaGatewayCommandMenuItem[]): Promise<void>;
-	sendMedia?(chatId: string, filePath: string, caption?: string): Promise<void>;
+	sendMedia?(chatId: string, filePath: string, caption?: string): Promise<AkashaGatewayDeliveryReceipt | undefined>;
 }
 
 export interface AkashaGatewayMessageHandler {
@@ -100,4 +104,47 @@ export interface AkashaGatewayAgentRunInput {
 export interface AkashaGatewayAgentRunner {
 	run(input: AkashaGatewayAgentRunInput): Promise<AkashaGatewayAgentResult>;
 	stop(chatId: string): Promise<boolean>;
+}
+
+export type AkashaGatewayInboxState = "queued" | "running" | "succeeded" | "failed" | "dead_letter";
+export type AkashaGatewayInboxItemKind = "message" | "command" | "callback";
+export type AkashaGatewayOutboxState = "queued" | "sending" | "sent" | "failed" | "dead_letter";
+export type AkashaGatewayOutboxKind = "text" | "media";
+
+export interface AkashaGatewayDeliveryTarget {
+	platform: AkashaGatewayPlatform;
+	chatId: string;
+}
+
+export interface AkashaGatewayInboxEvent {
+	recordType: "gateway.inbox";
+	messageKey: string;
+	itemKind?: AkashaGatewayInboxItemKind;
+	state: AkashaGatewayInboxState;
+	attempt: number;
+	eventTime: string;
+	leaseExpiresAt?: string;
+	message?: AkashaGatewayIncomingMessage;
+	chat?: AkashaGatewayChatState;
+	error?: string;
+	outboxIds?: string[];
+	sourceEventId?: string;
+}
+
+export interface AkashaGatewayOutboxEvent {
+	recordType: "gateway.outbox";
+	outboxId: string;
+	target: AkashaGatewayDeliveryTarget;
+	kind: AkashaGatewayOutboxKind;
+	state: AkashaGatewayOutboxState;
+	attempt: number;
+	eventTime: string;
+	text?: string;
+	filePath?: string;
+	caption?: string;
+	nextAttemptAt?: string;
+	telegramMessageId?: string;
+	error?: string;
+	sourceMessageKey?: string;
+	sourceEventId?: string;
 }

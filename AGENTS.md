@@ -1,5 +1,12 @@
 # Development Rules
 
+## Project Identity
+
+- Akasha is an experimental Temporal Agent.
+- Coding is Akasha's first action surface and meta-tool language, not the product boundary.
+- Preserve the Time OS and Memory OS direction: event stream, temporal kernel, action gate, policy surface, callback/resume lifecycle, holographic memory, and temporal validity.
+- Do not reduce Akasha to a generic coding harness when naming, documenting, or designing new behavior.
+
 ## Conversational Style
 
 - Keep answers short and concise
@@ -23,8 +30,10 @@
 
 - After code changes (not documentation changes): `npm run check` (get full output, no tail). Fix all errors, warnings, and infos before committing.
 - Note: `npm run check` does not run tests.
-- NEVER run: `npm run dev`, `npm run build`, `npm test`
-- Only run specific tests if user instructs: `npx tsx ../../node_modules/vitest/dist/cli.js --run test/specific.test.ts`
+- NEVER run long-lived dev servers/watchers such as `npm run dev`.
+- Do not run broad `npm test` unless the user asks for a full test run.
+- Package builds are allowed when needed to validate touched code, for example `npm --prefix packages/coding-agent run build`.
+- Run focused tests for touched behavior, for example `npm --prefix packages/coding-agent test -- system-prompt` or `npx tsx ../../node_modules/vitest/dist/cli.js --run test/specific.test.ts`.
 - Run tests from the package root, not the repo root.
 - If you create or modify a test file, you MUST run that test file and iterate until it passes.
 - When writing tests, run them, identify issues in either the test or implementation, and iterate until fixed.
@@ -77,7 +86,7 @@ To test akasha's TUI in a controlled terminal environment:
 tmux new-session -d -s akasha-test -x 80 -y 24
 
 # Start akasha from source
-tmux send-keys -t akasha-test "cd /Users/badlogic/workspaces/akasha && ./akasha-test.sh" Enter
+tmux send-keys -t akasha-test "cd /path/to/akasha && ./akasha-test.sh" Enter
 
 # Wait for startup, then capture output
 sleep 3 && tmux capture-pane -t akasha-test -p
@@ -160,7 +169,7 @@ Create provider file exporting:
 - For `cross-provider-handoff.test.ts`, add at least one provider/model pair. If the provider exposes multiple model families (for example GPT and Claude), add at least one pair per family.
 - For non-standard auth, create utility (e.g., `bedrock-utils.ts`) with credential detection.
 
-### 6. Coding Agent (`packages/coding-agent/`)
+### 6. Akasha Coding Surface (`packages/coding-agent/`)
 
 - `src/core/model-resolver.ts`: Add default model ID to `defaultModelPerProvider`
 - `src/core/provider-display-names.ts`: Add API-key login display name so `/login` and related UI show the provider for built-in API-key auth.
@@ -176,6 +185,8 @@ Create provider file exporting:
 ## Releasing
 
 **Lockstep versioning**: All packages always share the same version number. Every release updates all packages together.
+
+Akasha's independent version line starts at `0.1.0`. Do not carry forward upstream `0.74.x` version semantics when preparing Akasha releases.
 
 **Version semantics** (no major releases):
 

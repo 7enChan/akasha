@@ -50,9 +50,14 @@ export class AkashaGatewaySessionStore {
 		return ids.length > 0 ? Math.max(...ids) : undefined;
 	}
 
-	resetSession(platform: AkashaGatewayPlatform, chatId: string, defaultCwd: string): AkashaGatewayChatState {
+	resetSession(
+		platform: AkashaGatewayPlatform,
+		chatId: string,
+		defaultCwd: string,
+		resetKey?: string,
+	): AkashaGatewayChatState {
 		const chat = this.getChat(platform, chatId, defaultCwd);
-		chat.sessionDir = this.resolveChatSessionDir(platform, `${chatId}-${Date.now()}`);
+		chat.sessionDir = this.resolveChatSessionDir(platform, `${chatId}-${resetKey ?? Date.now()}`);
 		chat.updatedAt = new Date().toISOString();
 		this.write();
 		return chat;

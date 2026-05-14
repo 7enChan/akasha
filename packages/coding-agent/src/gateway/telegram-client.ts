@@ -70,6 +70,29 @@ export class TelegramApiError extends Error {
 	}
 }
 
+export function isRetryableTelegramError(error: unknown): boolean {
+	if (error instanceof TelegramApiError) {
+		return error.status === 429 || error.status === undefined || error.status >= 500;
+	}
+	if (!(error instanceof Error)) return false;
+	const code = extractErrorCode(error);
+	if (code && RETRYABLE_NETWORK_CODES.has(code)) return true;
+	if (code?.startsWith("UND_ERR_")) return true;
+	const message = error.message.toLowerCase();
+	return (
+		message.includes("fetch failed") ||
+		message.includes("network") ||
+		message.includes("socket") ||
+		message.includes("timeout") ||
+		message.includes("econnreset") ||
+		message.includes("etimedout")
+	);
+}
+
+export function telegramRetryAfterSeconds(error: unknown): number | undefined {
+	return error instanceof TelegramApiError ? error.retryAfterSeconds : undefined;
+}
+
 export interface TelegramClientOptions {
 	token: string;
 	fetchImpl?: typeof fetch;
@@ -191,4 +214,25 @@ export class TelegramClient {
 	private fileUrl(filePath: string): string {
 		return `https://api.telegram.org/file/bot${this.options.token}/${filePath}`;
 	}
+}
+
+const RETRYABLE_NETWORK_CODES = new Set([
+	"ECONNRESET",
+	"ETIMEDOUT",
+	"ECONNREFUSED",
+	"EAI_AGAIN",
+	"ENETDOWN",
+	"ENETUNREACH",
+	"EHOSTUNREACH",
+	"UND_ERR_CONNECT_TIMEOUT",
+	"UND_ERR_HEADERS_TIMEOUT",
+	"UND_ERR_BODY_TIMEOUT",
+	"UND_ERR_SOCKET",
+]);
+
+function extractErrorCode(error: Error): string | undefined {
+	const record = error as Error & { code?: unknown; cause?: unknown };
+	if (typeof record.code === "string") return record.code;
+	if (record.cause instanceof Error) return extractErrorCode(record.cause);
+	return undefined;
 }

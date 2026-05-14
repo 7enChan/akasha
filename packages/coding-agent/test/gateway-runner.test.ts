@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { JsonlAkashaStore } from "../src/core/akasha/jsonl-store.js";
 import type { AkashaGatewayCallbackMode, ResolvedAkashaSettings } from "../src/core/settings-manager.js";
+import { AkashaGatewayInboxStore } from "../src/gateway/inbox-store.js";
 import { AkashaGatewayLogger } from "../src/gateway/logger.js";
 import { AkashaGatewayRunner } from "../src/gateway/runner.js";
 import type {
@@ -81,8 +82,85 @@ describe("AkashaGatewayRunner", () => {
 		expect(agent.runs[0].message.text).toBe("do work");
 		expect(adapter.sent.map((message) => message.text)).not.toContain("Akasha is thinking...");
 		expect(adapter.chatActions).toEqual([{ chatId: "1", action: "typing" }]);
+		expect(readGatewayInbox()).toContain('"messageKey":"telegram:1:11"');
+		expect(readGatewayOutbox()).toContain('"outboxId":"telegram:1:11:reply:text:0"');
 		expect(readGatewayEvents()).toContain("gateway.message.accepted");
 		expect(readGatewayEvents()).toContain("gateway.reply.sent");
+	});
+
+	it("dedupes duplicate Telegram updates before running the agent", async () => {
+		const adapter = new FakeAdapter();
+		const agent = new FakeAgentRunner("Agent reply");
+		const runner = createRunner({ adapter, agentRunner: agent });
+		const message = {
+			platform: "telegram" as const,
+			chatId: "1",
+			messageId: "duplicate",
+			updateId: 100,
+			userId: 123,
+			text: "do work once",
+			receivedTime: "2026-05-12T00:00:00.000Z",
+		};
+
+		await runner.handle(message);
+		await runner.handle(message);
+		await waitFor(() => adapter.sent.some((sent) => sent.text === "Agent reply"));
+
+		expect(agent.runs).toHaveLength(1);
+		expect(adapter.sent.filter((sent) => sent.text === "Agent reply")).toHaveLength(1);
+	});
+
+	it("processes a queued inbox item after a new runner instance starts", async () => {
+		const chat = {
+			platform: "telegram" as const,
+			chatId: "1",
+			cwd: projectDir,
+			sessionDir: join(agentDir, "gateway", "telegram", "chats", "1", "sessions"),
+			updatedAt: "2026-05-12T00:00:00.000Z",
+		};
+		new AkashaGatewayInboxStore(agentDir).enqueue({
+			chat,
+			message: {
+				platform: "telegram",
+				chatId: "1",
+				messageId: "queued",
+				userId: 123,
+				text: "survived crash",
+				receivedTime: "2026-05-12T00:00:00.000Z",
+			},
+			messageKey: "telegram:1:queued",
+		});
+		const adapter = new FakeAdapter();
+		const agent = new FakeAgentRunner("Recovered reply");
+		const runner = createRunner({ adapter, agentRunner: agent });
+
+		await runner.drainInbox();
+
+		expect(agent.runs[0].message.text).toBe("survived crash");
+		expect(adapter.sent.map((message) => message.text)).toContain("Recovered reply");
+		expect(readGatewayInbox()).toContain('"state":"succeeded"');
+	});
+
+	it("uses a deterministic session dir for duplicate /new commands", async () => {
+		const adapter = new FakeAdapter();
+		const runner = createRunner({ adapter });
+		const message = {
+			platform: "telegram" as const,
+			chatId: "1",
+			messageId: "new-command",
+			updateId: 101,
+			userId: 123,
+			text: "/new",
+			receivedTime: "2026-05-12T00:00:00.000Z",
+		};
+
+		await runner.handle(message);
+		const firstSessionDir = readGatewayState().chats[0].sessionDir;
+		await runner.handle(message);
+		const secondSessionDir = readGatewayState().chats[0].sessionDir;
+
+		expect(firstSessionDir).toBe(secondSessionDir);
+		expect(firstSessionDir).toContain("telegram_1_101");
 	});
 
 	it("handles /setcwd and /stop commands without invoking the agent queue", async () => {
@@ -162,6 +240,7 @@ describe("AkashaGatewayRunner", () => {
 		expect(adapter.sent.map((message) => message.text).join("\n")).toContain("Akasha callback due");
 		expect(agent.runs).toHaveLength(0);
 		expect(readInbox()).toBe("");
+		expect(readGatewayOutbox()).toContain("callback:callback-notify:notice");
 		expect(readGatewayEvents()).toContain('"callbackMode":"notify_only"');
 	});
 
@@ -176,6 +255,7 @@ describe("AkashaGatewayRunner", () => {
 		expect(adapter.sent.map((message) => message.text).join("\n")).toContain("queued in inbox");
 		expect(agent.runs).toHaveLength(0);
 		expect(readInbox()).toContain("Review inbox callback");
+		expect(readGatewayOutbox()).toContain("callback:callback-1:notice");
 		expect(readGatewayEvents()).toContain("gateway.callback.delivered");
 		expect(readGatewayEvents()).toContain('"callbackMode":"inbox_only"');
 	});
@@ -191,6 +271,8 @@ describe("AkashaGatewayRunner", () => {
 		expect(adapter.sent.map((message) => message.text).join("\n")).toContain("safe for auto-run");
 		expect(adapter.sent.map((message) => message.text)).toContain("Auto-run reply");
 		expect(agent.runs[0].message.text).toContain("callbackId: callback-2");
+		expect(readGatewayInbox()).toContain("callback:callback-2:auto-run");
+		expect(readGatewayOutbox()).toContain("callback:callback-2:notice");
 		expect(readGatewayEvents()).toContain('"autoRunAttempted":true');
 		expect(readGatewayEvents()).toContain("gateway.reply.sent");
 	});
@@ -342,6 +424,22 @@ describe("AkashaGatewayRunner", () => {
 			.map((file) => readFileSync(join(dir, file), "utf-8"))
 			.join("\n");
 	}
+
+	function readGatewayInbox(): string {
+		const path = join(agentDir, "gateway", "inbox.jsonl");
+		return existsSync(path) ? readFileSync(path, "utf-8") : "";
+	}
+
+	function readGatewayOutbox(): string {
+		const path = join(agentDir, "gateway", "outbox.jsonl");
+		return existsSync(path) ? readFileSync(path, "utf-8") : "";
+	}
+
+	function readGatewayState(): { chats: Array<{ sessionDir: string }> } {
+		return JSON.parse(readFileSync(join(agentDir, "gateway", "state.json"), "utf-8")) as {
+			chats: Array<{ sessionDir: string }>;
+		};
+	}
 });
 
 class FakeAdapter implements AkashaGatewayPlatformAdapter {
@@ -352,8 +450,9 @@ class FakeAdapter implements AkashaGatewayPlatformAdapter {
 
 	async start(): Promise<void> {}
 	async stop(): Promise<void> {}
-	async sendMessage(message: AkashaGatewayOutgoingMessage): Promise<void> {
+	async sendMessage(message: AkashaGatewayOutgoingMessage): Promise<undefined> {
 		this.sent.push(message);
+		return undefined;
 	}
 	async sendChatAction(chatId: string, action: "typing" = "typing"): Promise<void> {
 		this.chatActions.push({ chatId, action });

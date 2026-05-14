@@ -6,6 +6,7 @@ import { TelegramApiError, type TelegramClient, type TelegramMessage, type Teleg
 import type {
 	AkashaGatewayCommandMenuItem,
 	AkashaGatewayConfig,
+	AkashaGatewayDeliveryReceipt,
 	AkashaGatewayDownloadedFile,
 	AkashaGatewayMessageHandler,
 } from "./types.js";
@@ -44,8 +45,9 @@ export class TelegramGatewayAdapter {
 		}
 	}
 
-	async sendMessage(message: { chatId: string; text: string }): Promise<void> {
-		await this.options.client.sendMessage(message.chatId, message.text);
+	async sendMessage(message: { chatId: string; text: string }): Promise<AkashaGatewayDeliveryReceipt> {
+		const sent = await this.options.client.sendMessage(message.chatId, message.text);
+		return { messageId: String(sent.message_id) };
 	}
 
 	async sendChatAction(chatId: string, action: "typing" = "typing"): Promise<void> {
@@ -56,13 +58,16 @@ export class TelegramGatewayAdapter {
 		await this.options.client.setMyCommands(commands);
 	}
 
-	async sendMedia(chatId: string, filePath: string, caption?: string): Promise<void> {
-		await this.options.client.sendMedia(chatId, filePath, caption);
+	async sendMedia(chatId: string, filePath: string, caption?: string): Promise<AkashaGatewayDeliveryReceipt> {
+		const sent = await this.options.client.sendMedia(chatId, filePath, caption);
+		return { messageId: String(sent.message_id) };
 	}
 
 	async handleUpdate(update: TelegramUpdate): Promise<void> {
-		this.offset = update.update_id + 1;
-		if (!update.message) return;
+		if (!update.message) {
+			this.offset = update.update_id + 1;
+			return;
+		}
 		const message = update.message;
 		const text = message.text ?? message.caption ?? "";
 		const files = await this.downloadMessageFiles(message);
@@ -78,6 +83,7 @@ export class TelegramGatewayAdapter {
 			receivedTime: new Date((message.date || Math.floor(Date.now() / 1000)) * 1000).toISOString(),
 			raw: sanitizeTelegramUpdate(update),
 		});
+		this.offset = update.update_id + 1;
 	}
 
 	private async startPolling(): Promise<void> {

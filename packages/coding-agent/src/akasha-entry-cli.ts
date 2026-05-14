@@ -28,6 +28,7 @@ import { SettingsManager } from "./core/settings-manager.js";
 import { resolveAkashaGatewayConfig } from "./gateway/config.js";
 import { resolveAkashaGatewayEnvPath } from "./gateway/env.js";
 import { createAkashaGatewayRunnerFromSettings } from "./gateway/runner.js";
+import { akashaGatewayRuntimeStatusAgeMs, readAkashaGatewayRuntimeStatus } from "./gateway/runtime-status.js";
 import {
 	installAkashaGatewayUserService,
 	readAkashaGatewayJournal,
@@ -206,6 +207,21 @@ async function handleAkashaGatewayCommand(
 		console.log(`- home chat: ${status.config.telegram.homeChatId ?? "(missing)"}`);
 		if (status.missing.length > 0) console.log(`- missing: ${status.missing.join(", ")}`);
 		if (status.warnings.length > 0) console.log(`- warnings: ${status.warnings.join("; ")}`);
+		const runtime = readAkashaGatewayRuntimeStatus(agentDir);
+		if (runtime) {
+			console.log(`- runtime state: ${runtime.gatewayState}`);
+			console.log(`- platform state: ${runtime.platformState}`);
+			console.log(`- runtime age: ${Math.round(akashaGatewayRuntimeStatusAgeMs(runtime) / 1000)}s`);
+			console.log(`- pid: ${runtime.pid}`);
+			console.log(`- active chats: ${runtime.activeChats.length}`);
+			console.log(`- pending inbox: ${runtime.pendingInbox}`);
+			console.log(`- pending outbox: ${runtime.pendingOutbox}`);
+			console.log(`- dead letters: ${runtime.deadLetters}`);
+			if (typeof runtime.lastUpdateId === "number") console.log(`- last update id: ${runtime.lastUpdateId}`);
+			if (runtime.lastError) console.log(`- last error: ${runtime.lastError}`);
+		} else {
+			console.log("- runtime state: unavailable");
+		}
 		console.log(chalk.dim(`Secrets file: ${resolveAkashaGatewayEnvPath(agentDir)}`));
 		return;
 	}
