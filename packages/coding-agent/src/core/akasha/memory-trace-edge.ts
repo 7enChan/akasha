@@ -40,8 +40,29 @@ interface EdgeDraft {
 	sourceEventIds?: string[];
 }
 
-const EDGE_LIMIT_PER_GROUP = 32;
+const EDGE_LIMIT_PER_GROUP = 24;
 const ENTITY_LIMIT_PER_TRACE = 8;
+const MAX_MEMORY_TRACE_EDGES = 4096;
+const EDGE_SOURCE_EVENT_ID_LIMIT = 12;
+
+const EDGE_LIMIT_PER_KIND: Record<AkashaMemoryTraceEdgeKind, number> = {
+	same_event: 512,
+	causal_parent: 768,
+	temporal_adjacent: 512,
+	same_artifact: 512,
+	same_tool: 256,
+	same_callback: 256,
+	same_entity: 512,
+	same_procedure: 256,
+	supports: 256,
+	contradicts: 128,
+	supersedes: 128,
+};
+
+interface EdgeBudget {
+	total: number;
+	byKind: Map<AkashaMemoryTraceEdgeKind, number>;
+}
 
 export function buildAkashaMemoryTraceEdges(
 	events: AkashaEvent[],
@@ -50,40 +71,49 @@ export function buildAkashaMemoryTraceEdges(
 	const byEventId = new Map(events.map((event) => [event.eventId, event]));
 	const tracesByEventId = groupTracesByEventId(traces);
 	const edges = new Map<string, AkashaMemoryTraceEdge>();
+	const budget: EdgeBudget = { total: 0, byKind: new Map() };
 
 	for (const group of tracesByEventId.values()) {
-		addCompleteGroup(edges, group, "same_event", 0.9);
+		addCompleteGroup(edges, budget, group, "same_event", 0.9);
 	}
 
-	addCausalParentEdges(edges, events, tracesByEventId);
-	addTemporalAdjacentEdges(edges, events, tracesByEventId);
-	addSharedKeyEdges(edges, traces, byEventId, "same_artifact", 0.75, (trace, event) => artifactKeys(trace, event));
-	addSharedKeyEdges(edges, traces, byEventId, "same_tool", 0.6, (trace, event) => toolKeys(trace, event));
-	addSharedKeyEdges(edges, traces, byEventId, "same_callback", 0.85, (trace, event) => callbackKeys(trace, event));
-	addSharedKeyEdges(edges, traces, byEventId, "same_entity", 0.45, (trace) => entityKeys(trace));
-	addProcedureEdges(edges, events, traces);
-	addSupportEdges(edges, traces, byEventId);
-	addCorrectionEdges(edges, events, tracesByEventId);
+	addCausalParentEdges(edges, budget, events, tracesByEventId);
+	addTemporalAdjacentEdges(edges, budget, events, tracesByEventId);
+	addSharedKeyEdges(edges, budget, traces, byEventId, "same_artifact", 0.75, (trace, event) =>
+		artifactKeys(trace, event),
+	);
+	addSharedKeyEdges(edges, budget, traces, byEventId, "same_tool", 0.6, (trace, event) => toolKeys(trace, event));
+	addSharedKeyEdges(edges, budget, traces, byEventId, "same_callback", 0.85, (trace, event) =>
+		callbackKeys(trace, event),
+	);
+	addSharedKeyEdges(edges, budget, traces, byEventId, "same_entity", 0.45, (trace) => entityKeys(trace));
+	addProcedureEdges(edges, budget, events, traces);
+	addSupportEdges(edges, budget, traces, byEventId);
+	addCorrectionEdges(edges, budget, events, tracesByEventId);
 
 	return [...edges.values()].sort((a, b) => a.edgeId.localeCompare(b.edgeId));
 }
 
 function addCausalParentEdges(
 	edges: Map<string, AkashaMemoryTraceEdge>,
+	budget: EdgeBudget,
 	events: AkashaEvent[],
 	tracesByEventId: Map<string, AkashaMemoryTrace[]>,
 ): void {
 	for (const event of events) {
+		if (isKindBudgetFull(budget, "causal_parent")) break;
 		const childTraces = tracesByEventId.get(event.eventId) ?? [];
 		for (const parentId of event.parentEventIds) {
+			if (isKindBudgetFull(budget, "causal_parent")) break;
 			const parentTraces = tracesByEventId.get(parentId) ?? [];
-			addGroupEdges(edges, parentTraces, childTraces, "causal_parent", 0.8, { bidirectional: true });
+			addGroupEdges(edges, budget, parentTraces, childTraces, "causal_parent", 0.8, { bidirectional: true });
 		}
 	}
 }
 
 function addTemporalAdjacentEdges(
 	edges: Map<string, AkashaMemoryTraceEdge>,
+	budget: EdgeBudget,
 	events: AkashaEvent[],
 	tracesByEventId: Map<string, AkashaMemoryTrace[]>,
 ): void {
@@ -92,11 +122,13 @@ function addTemporalAdjacentEdges(
 			a.streamId.localeCompare(b.streamId) || a.sequence - b.sequence || a.eventTime.localeCompare(b.eventTime),
 	);
 	for (let index = 1; index < ordered.length; index++) {
+		if (isKindBudgetFull(budget, "temporal_adjacent")) break;
 		const previous = ordered[index - 1];
 		const current = ordered[index];
 		if (!previous || !current || previous.streamId !== current.streamId) continue;
 		addGroupEdges(
 			edges,
+			budget,
 			tracesByEventId.get(previous.eventId) ?? [],
 			tracesByEventId.get(current.eventId) ?? [],
 			"temporal_adjacent",
@@ -108,6 +140,7 @@ function addTemporalAdjacentEdges(
 
 function addSharedKeyEdges(
 	edges: Map<string, AkashaMemoryTraceEdge>,
+	budget: EdgeBudget,
 	traces: AkashaMemoryTrace[],
 	eventsById: Map<string, AkashaEvent>,
 	kind: AkashaMemoryTraceEdgeKind,
@@ -125,11 +158,15 @@ function addSharedKeyEdges(
 			groups.set(normalized, group);
 		}
 	}
-	for (const group of groups.values()) addCompleteGroup(edges, group, kind, weight);
+	for (const group of groups.values()) {
+		if (isKindBudgetFull(budget, kind)) break;
+		addCompleteGroup(edges, budget, group, kind, weight);
+	}
 }
 
 function addProcedureEdges(
 	edges: Map<string, AkashaMemoryTraceEdge>,
+	budget: EdgeBudget,
 	events: AkashaEvent[],
 	traces: AkashaMemoryTrace[],
 ): void {
@@ -144,15 +181,17 @@ function addProcedureEdges(
 
 	const procedures = buildAkashaProceduralMemories(events, { maxProcedures: 24 });
 	for (const procedure of procedures) {
+		if (isKindBudgetFull(budget, "same_procedure")) break;
 		const procedureTraces = uniqueTraces(
 			procedure.sourceEventIds.flatMap((eventId) => tracesBySourceId.get(eventId) ?? []),
 		);
-		addCompleteGroup(edges, procedureTraces, "same_procedure", 0.7);
+		addCompleteGroup(edges, budget, procedureTraces, "same_procedure", 0.7);
 	}
 }
 
 function addSupportEdges(
 	edges: Map<string, AkashaMemoryTraceEdge>,
+	budget: EdgeBudget,
 	traces: AkashaMemoryTrace[],
 	eventsById: Map<string, AkashaEvent>,
 ): void {
@@ -173,18 +212,23 @@ function addSupportEdges(
 	}
 
 	for (const group of relatedByKey.values()) {
+		if (isKindBudgetFull(budget, "supports")) break;
 		const supporters = group.filter(
 			(trace) => trace.kind === "success" || trace.kind === "closure" || trace.kind === "skill",
 		);
 		const supported = group.filter(
 			(trace) => trace.kind === "failure" || trace.kind === "task" || trace.kind === "callback",
 		);
-		addGroupEdges(edges, supporters, supported, "supports", 0.65, { bidirectional: true, confidence: 0.75 });
+		addGroupEdges(edges, budget, supporters, supported, "supports", 0.65, {
+			bidirectional: true,
+			confidence: 0.75,
+		});
 	}
 }
 
 function addCorrectionEdges(
 	edges: Map<string, AkashaMemoryTraceEdge>,
+	budget: EdgeBudget,
 	events: AkashaEvent[],
 	tracesByEventId: Map<string, AkashaMemoryTrace[]>,
 ): void {
@@ -193,14 +237,15 @@ function addCorrectionEdges(
 			const oldEventId = stringPayload(event, "oldMemoryEventId");
 			const newEventId = stringPayload(event, "newMemoryEventId");
 			if (!oldEventId || !newEventId) continue;
+			if (isKindBudgetFull(budget, "supersedes")) continue;
 			const oldTraces = tracesByEventId.get(oldEventId) ?? [];
 			const newTraces = tracesByEventId.get(newEventId) ?? [];
-			addGroupEdges(edges, newTraces, oldTraces, "supersedes", 0.85, {
+			addGroupEdges(edges, budget, newTraces, oldTraces, "supersedes", 0.85, {
 				confidence: 0.9,
 				polarity: "inhibitory",
 				sourceEventIds: [event.eventId, oldEventId, newEventId],
 			});
-			addGroupEdges(edges, oldTraces, newTraces, "supersedes", 0.85, {
+			addGroupEdges(edges, budget, oldTraces, newTraces, "supersedes", 0.85, {
 				confidence: 0.9,
 				polarity: "excitatory",
 				sourceEventIds: [event.eventId, oldEventId, newEventId],
@@ -209,13 +254,14 @@ function addCorrectionEdges(
 		}
 
 		if (event.kind === "prediction.corrected") {
+			if (isKindBudgetFull(budget, "contradicts")) continue;
 			const correctionTraces = tracesByEventId.get(event.eventId) ?? [];
 			const targetEventIds = uniqueStrings([
 				...event.parentEventIds,
 				...stringArrayPayload(event, "sourceEventIds"),
 			]);
 			const targetTraces = uniqueTraces(targetEventIds.flatMap((eventId) => tracesByEventId.get(eventId) ?? []));
-			addGroupEdges(edges, correctionTraces, targetTraces, "contradicts", 0.8, {
+			addGroupEdges(edges, budget, correctionTraces, targetTraces, "contradicts", 0.8, {
 				confidence: 0.85,
 				polarity: "inhibitory",
 				sourceEventIds: [event.eventId, ...targetEventIds],
@@ -224,10 +270,11 @@ function addCorrectionEdges(
 		}
 
 		if (event.kind === "state.superseded") {
+			if (isKindBudgetFull(budget, "supersedes")) continue;
 			const currentTraces = tracesByEventId.get(event.eventId) ?? [];
 			const supersededIds = uniqueStrings([...event.parentEventIds, ...stringArrayPayload(event, "sourceEventIds")]);
 			const supersededTraces = uniqueTraces(supersededIds.flatMap((eventId) => tracesByEventId.get(eventId) ?? []));
-			addGroupEdges(edges, currentTraces, supersededTraces, "supersedes", 0.85, {
+			addGroupEdges(edges, budget, currentTraces, supersededTraces, "supersedes", 0.85, {
 				confidence: 0.85,
 				polarity: "inhibitory",
 				sourceEventIds: [event.eventId, ...supersededIds],
@@ -238,24 +285,28 @@ function addCorrectionEdges(
 
 function addCompleteGroup(
 	edges: Map<string, AkashaMemoryTraceEdge>,
+	budget: EdgeBudget,
 	traces: AkashaMemoryTrace[],
 	kind: AkashaMemoryTraceEdgeKind,
 	weight: number,
 ): void {
-	const group = uniqueTraces(traces).slice(0, EDGE_LIMIT_PER_GROUP);
+	const group = selectTraces(traces, EDGE_LIMIT_PER_GROUP);
 	for (let left = 0; left < group.length; left++) {
+		if (isKindBudgetFull(budget, kind)) break;
 		for (let right = left + 1; right < group.length; right++) {
+			if (isKindBudgetFull(budget, kind)) break;
 			const fromTrace = group[left];
 			const toTrace = group[right];
 			if (!fromTrace || !toTrace) continue;
-			addEdge(edges, { fromTrace, toTrace, kind, weight });
-			addEdge(edges, { fromTrace: toTrace, toTrace: fromTrace, kind, weight });
+			addEdge(edges, budget, { fromTrace, toTrace, kind, weight });
+			addEdge(edges, budget, { fromTrace: toTrace, toTrace: fromTrace, kind, weight });
 		}
 	}
 }
 
 function addGroupEdges(
 	edges: Map<string, AkashaMemoryTraceEdge>,
+	budget: EdgeBudget,
 	fromTraces: AkashaMemoryTrace[],
 	toTraces: AkashaMemoryTrace[],
 	kind: AkashaMemoryTraceEdgeKind,
@@ -267,10 +318,14 @@ function addGroupEdges(
 		sourceEventIds?: string[];
 	} = {},
 ): void {
-	for (const fromTrace of uniqueTraces(fromTraces).slice(0, EDGE_LIMIT_PER_GROUP)) {
-		for (const toTrace of uniqueTraces(toTraces).slice(0, EDGE_LIMIT_PER_GROUP)) {
+	const fromGroup = selectTraces(fromTraces, EDGE_LIMIT_PER_GROUP);
+	const toGroup = selectTraces(toTraces, EDGE_LIMIT_PER_GROUP);
+	for (const fromTrace of fromGroup) {
+		if (isKindBudgetFull(budget, kind)) break;
+		for (const toTrace of toGroup) {
+			if (isKindBudgetFull(budget, kind)) break;
 			if (fromTrace.traceId === toTrace.traceId) continue;
-			addEdge(edges, {
+			addEdge(edges, budget, {
 				fromTrace,
 				toTrace,
 				kind,
@@ -280,7 +335,7 @@ function addGroupEdges(
 				sourceEventIds: options.sourceEventIds,
 			});
 			if (options.bidirectional) {
-				addEdge(edges, {
+				addEdge(edges, budget, {
 					fromTrace: toTrace,
 					toTrace: fromTrace,
 					kind,
@@ -294,7 +349,7 @@ function addGroupEdges(
 	}
 }
 
-function addEdge(edges: Map<string, AkashaMemoryTraceEdge>, draft: EdgeDraft): void {
+function addEdge(edges: Map<string, AkashaMemoryTraceEdge>, budget: EdgeBudget, draft: EdgeDraft): void {
 	if (draft.fromTrace.traceId === draft.toTrace.traceId) return;
 	const edge: AkashaMemoryTraceEdge = {
 		edgeId: deterministicEdgeId(
@@ -313,12 +368,19 @@ function addEdge(edges: Map<string, AkashaMemoryTraceEdge>, draft: EdgeDraft): v
 			...(draft.sourceEventIds ?? []),
 			...draft.fromTrace.sourceEventIds,
 			...draft.toTrace.sourceEventIds,
-		]),
+		]).slice(0, EDGE_SOURCE_EVENT_ID_LIMIT),
 		createdAt:
 			draft.fromTrace.createdAt > draft.toTrace.createdAt ? draft.fromTrace.createdAt : draft.toTrace.createdAt,
 	};
 	const existing = edges.get(edge.edgeId);
-	if (!existing || edge.weight * edge.confidence > existing.weight * existing.confidence) edges.set(edge.edgeId, edge);
+	if (existing) {
+		if (edge.weight * edge.confidence > existing.weight * existing.confidence) edges.set(edge.edgeId, edge);
+		return;
+	}
+	if (isKindBudgetFull(budget, edge.kind)) return;
+	edges.set(edge.edgeId, edge);
+	budget.total++;
+	budget.byKind.set(edge.kind, (budget.byKind.get(edge.kind) ?? 0) + 1);
 }
 
 function groupTracesByEventId(traces: AkashaMemoryTrace[]): Map<string, AkashaMemoryTrace[]> {
@@ -437,6 +499,25 @@ function uniqueTraces(traces: AkashaMemoryTrace[]): AkashaMemoryTrace[] {
 	return [...new Map(traces.map((trace) => [trace.traceId, trace])).values()].sort((a, b) =>
 		a.traceId.localeCompare(b.traceId),
 	);
+}
+
+function selectTraces(traces: AkashaMemoryTrace[], limit: number): AkashaMemoryTrace[] {
+	return uniqueTraces(traces)
+		.sort(
+			(a, b) =>
+				tracePriority(b) - tracePriority(a) ||
+				b.createdAt.localeCompare(a.createdAt) ||
+				a.traceId.localeCompare(b.traceId),
+		)
+		.slice(0, limit);
+}
+
+function tracePriority(trace: AkashaMemoryTrace): number {
+	return trace.weight * trace.confidence;
+}
+
+function isKindBudgetFull(budget: EdgeBudget, kind: AkashaMemoryTraceEdgeKind): boolean {
+	return budget.total >= MAX_MEMORY_TRACE_EDGES || (budget.byKind.get(kind) ?? 0) >= EDGE_LIMIT_PER_KIND[kind];
 }
 
 function uniqueStrings(values: string[]): string[] {

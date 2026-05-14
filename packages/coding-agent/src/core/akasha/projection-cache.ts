@@ -7,7 +7,7 @@ import { type AkashaTemporalState, buildTemporalState } from "./temporal-state.j
 import type { AkashaEvent, AkashaStore } from "./types.js";
 import { type AkashaProjectState, buildProjectState } from "./world-model.js";
 
-export const AKASHA_PROJECTION_CACHE_VERSION = 1 as const;
+export const AKASHA_PROJECTION_CACHE_VERSION = 2 as const;
 
 export type AkashaProjectionCacheScope = "session" | "project" | "user";
 export type AkashaProjectionCacheStatus = "fresh" | "missing" | "stale" | "invalid";

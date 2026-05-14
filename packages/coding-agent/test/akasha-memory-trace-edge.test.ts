@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createMemoryGovernanceEvent } from "../src/core/akasha/memory-governance.js";
+import type { AkashaMemoryTrace, AkashaMemoryTraceKind } from "../src/core/akasha/memory-trace.js";
 import { buildAkashaMemoryTraces } from "../src/core/akasha/memory-trace.js";
 import { buildAkashaMemoryTraceEdges } from "../src/core/akasha/memory-trace-edge.js";
 import type { AkashaEvent, AkashaEventDraft } from "../src/core/akasha/types.js";
@@ -91,6 +92,50 @@ describe("Akasha memory trace edges", () => {
 		expect(traces.some((trace) => trace.eventId === source.eventId)).toBe(false);
 		expect(edges.some((edge) => edge.sourceEventIds.includes(source.eventId))).toBe(false);
 	});
+
+	it("keeps dense project edge projections bounded", () => {
+		const events: AkashaEvent[] = [];
+		const traces: AkashaMemoryTrace[] = [];
+		const traceKinds: AkashaMemoryTraceKind[] = [
+			"time",
+			"actor",
+			"semantic",
+			"artifact",
+			"tool",
+			"task",
+			"success",
+			"failure",
+		];
+
+		for (let index = 1; index <= 160; index++) {
+			const parentEventIds = index > 1 ? [`evt-${index - 1}`] : [];
+			const current = event(
+				index,
+				index % 3 === 0 ? "tool.completed" : "message.user.submitted",
+				{
+					text: `Investigate Akasha shared project entity ${index}`,
+					summary: "Akasha shared project entity touched src/akasha/memory-trace-edge.ts",
+					toolName: "bash",
+					path: "src/akasha/memory-trace-edge.ts",
+				},
+				{ parentEventIds },
+			);
+			events.push(current);
+			for (const kind of traceKinds) {
+				traces.push(trace(current, kind));
+			}
+		}
+
+		const edges = buildAkashaMemoryTraceEdges(events, traces);
+		const kinds = new Set(edges.map((edge) => edge.kind));
+
+		expect(edges.length).toBeLessThanOrEqual(4096);
+		expect(kinds.has("same_event")).toBe(true);
+		expect(kinds.has("causal_parent")).toBe(true);
+		expect(kinds.has("temporal_adjacent")).toBe(true);
+		expect(kinds.has("same_entity")).toBe(true);
+		expect(edges.every((edge) => edge.sourceEventIds.length <= 12)).toBe(true);
+	});
 });
 
 function materialize(sequence: number, draft: AkashaEventDraft): AkashaEvent {
@@ -128,5 +173,20 @@ function event(
 		ttlPolicy: "long_term",
 		version: 1,
 		...overrides,
+	};
+}
+
+function trace(event: AkashaEvent, kind: AkashaMemoryTraceKind): AkashaMemoryTrace {
+	return {
+		traceId: `trace-${event.sequence}-${kind}`,
+		eventId: event.eventId,
+		sourceEventIds: [event.eventId, ...event.parentEventIds],
+		kind,
+		key: `${kind}:AkashaSharedEntity:src/akasha/memory-trace-edge.ts`,
+		text: `AkashaSharedEntity src/akasha/memory-trace-edge.ts ${kind} event ${event.sequence}`,
+		weight: kind === "failure" ? 0.95 : 0.7,
+		confidence: kind === "time" || kind === "actor" ? 0.55 : 0.85,
+		createdAt: event.eventTime,
+		recallCount: 0,
 	};
 }
