@@ -3,7 +3,6 @@
 ## Project Identity
 
 - Akasha is an experimental Temporal Agent.
-- Coding is Akasha's first action surface and meta-tool language, not the product boundary.
 - Preserve the Time OS and Memory OS direction: event stream, temporal kernel, action gate, policy surface, callback/resume lifecycle, holographic memory, and temporal validity.
 - Do not reduce Akasha to a generic coding harness when naming, documenting, or designing new behavior.
 

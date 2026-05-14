@@ -112,7 +112,7 @@ describe("buildSystemPrompt", () => {
 			expect(prompt).toContain("You are Akasha");
 			expect(prompt).toContain("Temporal Agent");
 			expect(prompt).toContain("Time is the form of your experience");
-			expect(prompt).toContain("not limited to coding");
+			expect(prompt).toContain("long-running work that needs temporal judgment");
 			expect(prompt).toContain("causal memory");
 			expect(prompt).toContain("identify yourself as Akasha");
 			expect(prompt).toContain("Knowing:");
@@ -127,6 +127,8 @@ describe("buildSystemPrompt", () => {
 			expect(prompt).toContain("Respect Akasha policy decisions and tool gates");
 			expect(prompt).toContain("future commitments visible");
 			expect(prompt).toContain("Akasha guide:");
+			expect(prompt).not.toContain("dogfood surface is coding");
+			expect(prompt).not.toContain("For coding work");
 			expect(prompt).not.toContain("operating inside akasha");
 			expect(prompt).not.toContain("Do not introduce yourself as akasha");
 		});
