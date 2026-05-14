@@ -9,6 +9,7 @@ export type AkashaRuntimeActionType =
 	| "temporal_recall"
 	| "memory_recall"
 	| "callback_dispatch"
+	| "surface_action"
 	| "reflection"
 	| "embedding_index"
 	| "memory_projection"
@@ -100,6 +101,16 @@ export const DEFAULT_AKASHA_RUNTIME_POLICY_RULES: AkashaPolicyRule[] = [
 		id: "block_syscall_without_source_event",
 		description: "Time syscalls must identify their source event when running under strict protocol.",
 		severity: "warning",
+	},
+	{
+		id: "block_surface_missing_capability",
+		description: "World surface actions must target a declared capability.",
+		severity: "critical",
+	},
+	{
+		id: "require_confirmation_for_critical_surface_action",
+		description: "Critical world surface actions require explicit confirmation.",
+		severity: "critical",
 	},
 	{
 		id: "block_stale_ephemeral_state_as_current",
@@ -295,6 +306,31 @@ function evaluateRule(input: AkashaPolicyEvaluationInput, rule: AkashaPolicyRule
 		const sourceEventIds = stringArrayPayload(input, "sourceEventIds");
 		if (input.payload?.strict === true && sourceEventIds.length === 0) {
 			return decision("block", rule, "Akasha strict protocol requires time syscalls to include sourceEventIds.", []);
+		}
+	}
+
+	if (rule.id === "block_surface_missing_capability" && input.actionType === "surface_action") {
+		if (input.payload?.missingCapability === true) {
+			return decision(
+				"block",
+				rule,
+				"Akasha blocked world surface action because the target capability is not declared.",
+				[],
+			);
+		}
+	}
+
+	if (rule.id === "require_confirmation_for_critical_surface_action" && input.actionType === "surface_action") {
+		if (input.payload?.capabilityRisk === "critical") {
+			return {
+				...decision(
+					"require_confirmation",
+					rule,
+					"Akasha requires confirmation before executing a critical world surface action.",
+					[],
+				),
+				confirmationPrompt: "Confirm this critical Akasha world surface action before execution.",
+			};
 		}
 	}
 

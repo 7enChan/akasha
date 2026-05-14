@@ -11,6 +11,26 @@ export {
 	splitTelegramText,
 	validateReadableMediaPath,
 } from "./media.js";
+export type {
+	AkashaGatewayPairingAction,
+	AkashaGatewayPairingDecision,
+	AkashaGatewayPairingInput,
+	AkashaGatewayPresenceCapability,
+	AkashaGatewayPresenceEventContext,
+	AkashaGatewayPresenceIdentityInput,
+	AkashaGatewayPresenceRecord,
+	AkashaGatewayPresenceRole,
+	AkashaGatewayPresenceStatus,
+} from "./presence.js";
+export {
+	computeAkashaGatewayPresenceStatus,
+	createAkashaGatewayIdempotencyKey,
+	createAkashaGatewayPresenceId,
+	createAkashaGatewayPresenceUpdatedDraft,
+	decideAkashaGatewayPairing,
+	projectAkashaGatewayPresence,
+	recordAkashaGatewayHeartbeat,
+} from "./presence.js";
 export { AkashaGatewayQueue } from "./queue.js";
 export { AkashaGatewayRunner, createAkashaGatewayRunnerFromSettings } from "./runner.js";
 export { AkashaGatewaySessionStore } from "./session-store.js";

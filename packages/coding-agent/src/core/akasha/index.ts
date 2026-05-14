@@ -2,6 +2,24 @@ export type { AkashaAccountabilityExtractionOptions } from "./accountability-ext
 export { deriveAccountabilityEventsFromAssistant } from "./accountability-extractor.js";
 export type { AkashaActionGateContext, AkashaActionGateOptions } from "./action-gate.js";
 export { buildAkashaActionGateContext } from "./action-gate.js";
+export type {
+	AkashaActionSurface,
+	AkashaActionSurfaceCapability,
+	AkashaActionSurfaceCapabilityRisk,
+	AkashaActionSurfaceEventContext,
+	AkashaActionSurfaceKind,
+	AkashaActionSurfaceOutcomeInput,
+	AkashaActionSurfaceRequest,
+	AkashaResolvedActionSurfaceRequest,
+} from "./action-surface.js";
+export {
+	AkashaActionSurfaceRegistry,
+	buildAkashaActionSurfacePolicyAction,
+	createAkashaActionSurfaceOutcomeDraft,
+	createAkashaActionSurfaceRequestedDraft,
+	evaluateAkashaActionSurfaceRequest,
+	resolveAkashaActionSurfaceRequest,
+} from "./action-surface.js";
 export type { AkashaArtifactState, AkashaArtifactStatus } from "./artifact-state.js";
 export { buildArtifactStates } from "./artifact-state.js";
 export { buildTemporalBrief, buildTemporalBriefWithEmbeddings } from "./brief.js";
@@ -59,6 +77,15 @@ export {
 } from "./daemon-queue.js";
 export type { AkashaDoctorReport } from "./doctor.js";
 export { buildAkashaDoctorReport } from "./doctor.js";
+export type {
+	AkashaDogfoodMemoryEvalBudget,
+	AkashaDogfoodMemoryEvalCorpus,
+	AkashaDogfoodMemoryEvalCorpusResult,
+	AkashaDogfoodMemoryEvalMetrics,
+	AkashaDogfoodMemoryEvalOptions,
+	AkashaDogfoodMemoryEvalResult,
+} from "./dogfood-memory-eval.js";
+export { formatAkashaDogfoodMemoryEvalResult, runAkashaDogfoodMemoryEval } from "./dogfood-memory-eval.js";
 export type { AkashaEmbeddingIndexOptions, AkashaEmbeddingIndexResult } from "./embedding-indexer.js";
 export { embeddingRecordId, eventEmbeddingText, indexAkashaEmbeddings } from "./embedding-indexer.js";
 export type { AkashaEmbeddingProvider, OpenAICompatibleEmbeddingProviderOptions } from "./embedding-provider.js";

@@ -11,6 +11,9 @@ export const KNOWN_AKASHA_EVENT_KINDS = new Set<AkashaEventKind>([
 	"turn.started",
 	"turn.completed",
 	"action_gate.injected",
+	"action_surface.requested",
+	"action_surface.completed",
+	"action_surface.failed",
 	"policy.evaluated",
 	"daemon.tick",
 	"time.callback.scheduled",
@@ -86,6 +89,7 @@ export const KNOWN_AKASHA_EVENT_KINDS = new Set<AkashaEventKind>([
 	"state.expired",
 	"gateway.started",
 	"gateway.stopped",
+	"gateway.presence.updated",
 	"gateway.update.received",
 	"gateway.message.accepted",
 	"gateway.message.rejected",
@@ -278,6 +282,21 @@ function validatePayloadShape(event: AkashaEvent, issues: AkashaSchemaIssue[]): 
 		if (typeof action !== "string" || !KNOWN_POLICY_ACTIONS.has(action)) {
 			issues.push(issue(event.eventId, "invalid_shape", "policy.evaluated requires a valid action"));
 		}
+	}
+	if (
+		event.kind === "action_surface.requested" ||
+		event.kind === "action_surface.completed" ||
+		event.kind === "action_surface.failed"
+	) {
+		requireStringPayload(event, issues, "surfaceId");
+		requireStringPayload(event, issues, "capabilityId");
+		requireStringPayload(event, issues, "actionId");
+	}
+	if (event.kind === "gateway.presence.updated") {
+		requireStringPayload(event, issues, "presenceId");
+		requireStringPayload(event, issues, "role");
+		requireStringPayload(event, issues, "status");
+		requireStringArrayPayload(event, issues, "capabilityIds");
 	}
 	if (event.kind === "promise.created") {
 		if (typeof event.payload.promiseId !== "string") {
