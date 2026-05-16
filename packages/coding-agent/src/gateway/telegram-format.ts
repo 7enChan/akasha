@@ -1,7 +1,6 @@
 import { Marked, type Token, type Tokens } from "marked";
 
 const markdownParser = new Marked();
-const TELEGRAM_HTML_LINE_BREAK = "&#10;";
 
 export interface TelegramFormattedText {
 	text: string;
@@ -21,47 +20,47 @@ export function formatTelegramMessageText(markdown: string): TelegramFormattedTe
 }
 
 function renderTelegramHtmlBlocks(tokens: readonly Token[]): string {
-	return tokens.map(renderTelegramHtmlBlock).filter(Boolean).join(TELEGRAM_HTML_LINE_BREAK);
+	return tokens.map(renderTelegramHtmlBlock).join("");
 }
 
 function renderTelegramHtmlBlock(token: Token): string {
 	switch (token.type) {
 		case "space":
-			return "";
+			return "\n";
 		case "hr":
-			return "-----";
+			return "-----\n\n";
 		case "heading": {
 			const heading = token as Tokens.Heading;
-			return `<b>${renderTelegramHtmlInline(heading.tokens)}</b>`;
+			return `<b>${renderTelegramHtmlInline(heading.tokens)}</b>\n\n`;
 		}
 		case "paragraph": {
 			const paragraph = token as Tokens.Paragraph;
-			return renderTelegramHtmlInline(paragraph.tokens);
+			return `${renderTelegramHtmlInline(paragraph.tokens)}\n\n`;
 		}
 		case "text": {
 			const text = token as Tokens.Text;
-			return renderTelegramHtmlInlineOrText(text);
+			return `${renderTelegramHtmlInlineOrText(text)}\n`;
 		}
 		case "code": {
 			const code = token as Tokens.Code;
-			return `<pre>${escapeTelegramHtml(code.text)}</pre>`;
+			return `<pre>${escapeTelegramHtml(code.text)}</pre>\n\n`;
 		}
 		case "blockquote": {
 			const blockquote = token as Tokens.Blockquote;
 			const body = renderTelegramHtmlBlocks(blockquote.tokens).trim();
-			return body ? `<blockquote>${body}</blockquote>` : "";
+			return body ? `<blockquote>${body}</blockquote>\n\n` : "";
 		}
 		case "list": {
 			const list = token as Tokens.List;
-			return renderTelegramHtmlList(list);
+			return `${renderTelegramHtmlList(list)}\n\n`;
 		}
 		case "table": {
 			const table = token as Tokens.Table;
-			return renderTelegramHtmlTable(table);
+			return `${renderTelegramHtmlTable(table)}\n\n`;
 		}
 		case "html": {
 			const html = token as Tokens.HTML;
-			return escapeTelegramHtml(html.text);
+			return `${escapeTelegramHtml(html.text)}\n\n`;
 		}
 		case "def":
 			return "";
@@ -131,14 +130,14 @@ function renderTelegramHtmlList(list: Tokens.List): string {
 			const task = item.task ? (item.checked ? "[x] " : "[ ] ") : "";
 			return renderTelegramHtmlListItem(item, `${marker}${task}`);
 		})
-		.join(TELEGRAM_HTML_LINE_BREAK);
+		.join("\n");
 }
 
 function renderTelegramHtmlListItem(item: Tokens.ListItem, prefix: string): string {
 	const body = renderTelegramHtmlBlocks(item.tokens).trim() || escapeTelegramHtml(item.text.trim());
-	const lines = splitTelegramHtmlLines(body);
+	const lines = body.split("\n");
 	const [first = "", ...rest] = lines;
-	return `${prefix}${first}${rest.map((line) => `${TELEGRAM_HTML_LINE_BREAK}  ${line}`).join("")}`;
+	return `${prefix}${first}${rest.map((line) => `\n  ${line}`).join("")}`;
 }
 
 function renderTelegramHtmlTable(table: Tokens.Table): string {
@@ -152,10 +151,10 @@ function renderTelegramHtmlTable(table: Tokens.Table): string {
 					const value = renderTelegramHtmlInline(cell.tokens) || escapeTelegramHtml(cell.text);
 					return `- <b>${escapeTelegramHtml(label)}:</b> ${value}`;
 				})
-				.join(TELEGRAM_HTML_LINE_BREAK);
-			return `<b>${escapeTelegramHtml(title || `Row ${rowIndex + 1}`)}</b>${TELEGRAM_HTML_LINE_BREAK}${values}`;
+				.join("\n");
+			return `<b>${escapeTelegramHtml(title || `Row ${rowIndex + 1}`)}</b>\n${values}`;
 		})
-		.join(TELEGRAM_HTML_LINE_BREAK);
+		.join("\n\n");
 }
 
 function renderTelegramHtmlLink(link: Tokens.Link): string {
@@ -183,16 +182,16 @@ function renderTelegramPlainBlocks(tokens: readonly Token[]): string {
 function renderTelegramPlainBlock(token: Token): string {
 	switch (token.type) {
 		case "space":
-			return "";
+			return "\n";
 		case "hr":
-			return "-----\n";
+			return "-----\n\n";
 		case "heading": {
 			const heading = token as Tokens.Heading;
-			return `${renderTelegramPlainInline(heading.tokens)}\n`;
+			return `${renderTelegramPlainInline(heading.tokens)}\n\n`;
 		}
 		case "paragraph": {
 			const paragraph = token as Tokens.Paragraph;
-			return `${renderTelegramPlainInline(paragraph.tokens)}\n`;
+			return `${renderTelegramPlainInline(paragraph.tokens)}\n\n`;
 		}
 		case "text": {
 			const text = token as Tokens.Text;
@@ -200,7 +199,7 @@ function renderTelegramPlainBlock(token: Token): string {
 		}
 		case "code": {
 			const code = token as Tokens.Code;
-			return `${code.text}\n`;
+			return `${code.text}\n\n`;
 		}
 		case "blockquote": {
 			const blockquote = token as Tokens.Blockquote;
@@ -209,19 +208,19 @@ function renderTelegramPlainBlock(token: Token): string {
 				.split("\n")
 				.map((line) => `> ${line}`)
 				.join("\n")
-				.concat("\n");
+				.concat("\n\n");
 		}
 		case "list": {
 			const list = token as Tokens.List;
-			return `${renderTelegramPlainList(list)}\n`;
+			return `${renderTelegramPlainList(list)}\n\n`;
 		}
 		case "table": {
 			const table = token as Tokens.Table;
-			return `${renderTelegramPlainTable(table)}\n`;
+			return `${renderTelegramPlainTable(table)}\n\n`;
 		}
 		case "html": {
 			const html = token as Tokens.HTML;
-			return `${html.text}\n`;
+			return `${html.text}\n\n`;
 		}
 		case "def":
 			return "";
@@ -317,7 +316,7 @@ function renderTelegramPlainTable(table: Tokens.Table): string {
 				.join("\n");
 			return `${title || `Row ${rowIndex + 1}`}\n${values}`;
 		})
-		.join("\n");
+		.join("\n\n");
 }
 
 function renderTelegramPlainTableCell(cell: Tokens.TableCell): string {
@@ -341,10 +340,6 @@ function escapeTelegramHtml(text: string): string {
 
 function escapeTelegramHtmlAttribute(text: string): string {
 	return escapeTelegramHtml(text).replace(/"/g, "&quot;");
-}
-
-function splitTelegramHtmlLines(text: string): string[] {
-	return text.split(/\n|&#10;/);
 }
 
 function renderUnknownTokenText(token: Token): string {

@@ -58,26 +58,6 @@ describe("TelegramClient", () => {
 		});
 	});
 
-	it("uses single newlines between Telegram markdown blocks", async () => {
-		const calls: Array<{ url: string; body: unknown }> = [];
-		const client = new TelegramClient({
-			token: "token",
-			fetchImpl: fakeFetch(calls, {
-				ok: true,
-				result: { message_id: 1, date: 1, chat: { id: 123, type: "private" } },
-			}),
-		});
-
-		await client.sendMessage(123, "# 核心能力\n\n第一段\n\n- 一\n- 二");
-
-		expect(calls[0].body).toMatchObject({
-			text: "<b>核心能力</b>&#10;第一段&#10;- 一&#10;- 二",
-			parse_mode: "HTML",
-		});
-		expect((calls[0].body as { text: string }).text).not.toContain("\n\n");
-		expect((calls[0].body as { text: string }).text).not.toContain("\n");
-	});
-
 	it("falls back to stripped plain text when Telegram rejects HTML parsing", async () => {
 		const calls: Array<{ url: string; body: unknown }> = [];
 		const client = new TelegramClient({
