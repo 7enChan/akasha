@@ -13,7 +13,7 @@
 
 ### Fixed
 
-- Fixed Telegram gateway replies to render Markdown formatting through Telegram-safe HTML instead of showing raw Markdown markers.
+- Fixed Telegram gateway replies to render Markdown formatting through Telegram-safe HTML with compact line breaks instead of showing raw Markdown markers.
 - Fixed dense Akasha memory trace edge projections from growing into very large project caches that can saturate CPU during gateway turns.
 - Fixed theme sharing across package scopes so extensions do not crash with `Theme not initialized` ([#4333](https://github.com/earendil-works/akasha/issues/4333)).
 - Fixed keybinding hints to show Option instead of Alt on macOS ([#4289](https://github.com/earendil-works/akasha/issues/4289)).
