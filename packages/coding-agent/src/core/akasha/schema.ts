@@ -57,6 +57,9 @@ export const KNOWN_AKASHA_EVENT_KINDS = new Set<AkashaEventKind>([
 	"prediction.made",
 	"prediction.checked",
 	"prediction.corrected",
+	"claim.observed",
+	"claim.confirmed",
+	"claim.superseded",
 	"reflection.started",
 	"reflection.completed",
 	"memory.pinned",
@@ -313,6 +316,28 @@ function validatePayloadShape(event: AkashaEvent, issues: AkashaSchemaIssue[]): 
 		if (typeof event.payload.claim !== "string") {
 			issues.push(issue(event.eventId, "invalid_shape", "prediction.made requires payload.claim"));
 		}
+	}
+	if (event.kind === "claim.observed" || event.kind === "claim.confirmed") {
+		requireStringPayload(event, issues, "claimId");
+		requireStringPayload(event, issues, "claimKey");
+		requireStringPayload(event, issues, "subject");
+		requireStringPayload(event, issues, "predicate");
+		requireStringPayload(event, issues, "value");
+		requireStringPayload(event, issues, "summary");
+		requireStringArrayPayload(event, issues, "sourceEventIds");
+		if (event.payload.exclusive !== undefined && typeof event.payload.exclusive !== "boolean") {
+			issues.push(issue(event.eventId, "invalid_shape", `${event.kind} payload.exclusive must be a boolean`));
+		}
+		if (event.payload.confidence !== undefined && typeof event.payload.confidence !== "number") {
+			issues.push(issue(event.eventId, "invalid_shape", `${event.kind} payload.confidence must be a number`));
+		}
+	}
+	if (event.kind === "claim.superseded") {
+		requireStringPayload(event, issues, "claimId");
+		requireStringPayload(event, issues, "claimKey");
+		requireStringPayload(event, issues, "supersededByClaimId");
+		requireStringPayload(event, issues, "supersededByEventId");
+		requireStringArrayPayload(event, issues, "sourceEventIds");
 	}
 	if (event.kind === "memory.recalled") {
 		requireStringPayload(event, issues, "fieldId");

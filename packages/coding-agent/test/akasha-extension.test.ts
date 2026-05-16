@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentMessage } from "@earendil-works/akasha-agent-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createAkashaCollectorExtension, resolveAkashaEventLogPath } from "../src/core/akasha/index.js";
+import {
+	buildAkashaClaimLedger,
+	createAkashaCollectorExtension,
+	resolveAkashaEventLogPath,
+} from "../src/core/akasha/index.js";
+import type { AkashaEvent } from "../src/core/akasha/types.js";
 import type {
 	ContextEventResult,
 	ExtensionAPI,
@@ -151,20 +156,53 @@ describe("Akasha collector extension", () => {
 			undefined,
 			ctx,
 		);
+		const claimTool = extension.tools.get("akasha_record_claim");
+		expect(claimTool).toBeDefined();
+		await claimTool?.execute(
+			"call-akasha-claim-beijing",
+			{
+				subject: "user",
+				predicate: "work base",
+				value: "Beijing",
+				scope: "employment",
+				exclusive: true,
+			},
+			undefined,
+			undefined,
+			ctx,
+		);
+		await claimTool?.execute(
+			"call-akasha-claim-beijing-confirm",
+			{
+				subject: "user",
+				predicate: "work base",
+				value: "Beijing",
+				scope: "employment",
+				exclusive: true,
+			},
+			undefined,
+			undefined,
+			ctx,
+		);
+		await claimTool?.execute(
+			"call-akasha-claim-shanghai",
+			{
+				subject: "user",
+				predicate: "work base",
+				value: "Shanghai",
+				scope: "employment",
+				exclusive: true,
+			},
+			undefined,
+			undefined,
+			ctx,
+		);
 
 		const logPath = resolveAkashaEventLogPath({}, agentDir, sessionManager.getSessionId());
 		const lines = readFileSync(logPath, "utf-8")
 			.split(/\r?\n/)
 			.filter(Boolean)
-			.map(
-				(line) =>
-					JSON.parse(line) as {
-						eventId: string;
-						kind: string;
-						toolCallId?: string;
-						parentEventIds: string[];
-					},
-			);
+			.map((line) => JSON.parse(line) as AkashaEvent);
 		expect(lines.map((line) => line.kind)).toEqual(
 			expect.arrayContaining([
 				"session.started",
@@ -181,6 +219,9 @@ describe("Akasha collector extension", () => {
 				"artifact.read",
 				"message.tool_result.recorded",
 				"action_gate.injected",
+				"claim.observed",
+				"claim.confirmed",
+				"claim.superseded",
 			]),
 		);
 		expect(
@@ -195,6 +236,9 @@ describe("Akasha collector extension", () => {
 		expect(surfaceCompleted?.parentEventIds).toContain(surfaceRequested?.eventId);
 		expect(resultMessage).toBeDefined();
 		expect(resultMessage?.parentEventIds).toContain(completed?.eventId);
+		const claimLedger = buildAkashaClaimLedger(lines);
+		expect(claimLedger.current[0]).toMatchObject({ value: "Shanghai" });
+		expect(claimLedger.historical[0]).toMatchObject({ value: "Beijing" });
 
 		const notices: string[] = [];
 		const command = extension.commands.get("akasha");

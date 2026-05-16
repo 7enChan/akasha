@@ -214,7 +214,8 @@ function hasHolographicMemory(field: AkashaReconstructedMemoryField): boolean {
 		field.lessons.length > 0 ||
 		field.procedures.length > 0 ||
 		field.warnings.length > 0 ||
-		field.suggestedActions.length > 0
+		field.suggestedActions.length > 0 ||
+		field.contextualValidityAnnotations.length > 0
 	);
 }
 

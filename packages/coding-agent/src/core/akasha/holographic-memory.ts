@@ -1,4 +1,11 @@
 import { createHash } from "node:crypto";
+import {
+	type AkashaClaimRecord,
+	type AkashaClaimStatus,
+	activeAkashaClaimsAt,
+	buildAkashaClaimLedger,
+	claimText,
+} from "./claim-ledger.js";
 import type { AkashaMemoryCue } from "./memory-cue.js";
 import { applyAkashaMemoryFeedbackToEdges, buildAkashaMemoryFeedback } from "./memory-feedback.js";
 import { activateAkashaMemoryField } from "./memory-field-activation.js";
@@ -60,6 +67,27 @@ export interface AkashaMemoryValidityAnnotation {
 	useAs: "current_fact" | "historical_context" | "requires_currentness_check";
 }
 
+export type AkashaMemoryContextDependencyKind = "explicit" | "ambient";
+
+export type AkashaMemoryContextUseAs =
+	| "current_context"
+	| "historical_context"
+	| "requires_revalidation"
+	| "possibly_stale_context";
+
+export interface AkashaMemoryContextualValidityAnnotation {
+	claimId: string;
+	claimKey: string;
+	summary: string;
+	status: AkashaClaimStatus | "historical";
+	dependency: AkashaMemoryContextDependencyKind;
+	useAs: AkashaMemoryContextUseAs;
+	traceIds: string[];
+	eventIds: string[];
+	reason: string;
+	supersededByClaimId?: string;
+}
+
 export interface AkashaReconstructedMemoryField {
 	fieldId: string;
 	cue: AkashaMemoryCue;
@@ -77,6 +105,7 @@ export interface AkashaReconstructedMemoryField {
 	warnings: AkashaMemoryWarning[];
 	suggestedActions: AkashaMemorySuggestedAction[];
 	validityAnnotations: AkashaMemoryValidityAnnotation[];
+	contextualValidityAnnotations: AkashaMemoryContextualValidityAnnotation[];
 	tokenEstimate: number;
 	sourceEventIds: string[];
 	topReasons: string[];
@@ -142,6 +171,7 @@ export function reconstructAkashaMemoryField(input: {
 		[...recalledEventIds, ...sourceEventIds],
 		options.now,
 	);
+	const contextualValidityAnnotations = buildContextualValidityAnnotations(input.events, selectedTraces, options.now);
 	const recalledCrystalIds = uniqueStrings(
 		recalledEventIds.filter((eventId) => {
 			const kind = eventsById.get(eventId)?.kind;
@@ -165,6 +195,7 @@ export function reconstructAkashaMemoryField(input: {
 		warnings,
 		suggestedActions,
 		validityAnnotations,
+		contextualValidityAnnotations,
 		tokenEstimate: 0,
 		sourceEventIds,
 		topReasons: topReasons(ranked),
@@ -181,6 +212,9 @@ export function reconstructAkashaMemoryField(input: {
 		procedures: procedures.map((procedure) => procedure.procedureId),
 		warnings: warnings.map((warning) => warning.warningId),
 		validityAnnotations: validityAnnotations.map((annotation) => `${annotation.stateId}:${annotation.status}`),
+		contextualValidityAnnotations: contextualValidityAnnotations.map(
+			(annotation) => `${annotation.claimId}:${annotation.dependency}:${annotation.useAs}`,
+		),
 		activationReasons,
 	};
 	return {
@@ -200,6 +234,7 @@ export function reconstructAkashaMemoryField(input: {
 		warnings,
 		suggestedActions,
 		validityAnnotations,
+		contextualValidityAnnotations,
 		tokenEstimate: estimateTokens(text),
 		sourceEventIds,
 		topReasons: topReasons(ranked),
@@ -236,6 +271,15 @@ export function formatAkashaHolographicMemoryContext(field: AkashaReconstructedM
 			);
 		}
 		lines.push("</validity_annotations>");
+	}
+	if (field.contextualValidityAnnotations.length > 0) {
+		lines.push("<contextual_validity>");
+		for (const annotation of field.contextualValidityAnnotations) {
+			lines.push(
+				`- ${annotation.summary} => ${annotation.status}; dependency=${annotation.dependency}; use_as=${annotation.useAs}; ${annotation.reason}`,
+			);
+		}
+		lines.push("</contextual_validity>");
 	}
 	if (field.suggestedActions.length > 0) {
 		lines.push("<suggested_actions>");
@@ -277,6 +321,143 @@ function buildValidityAnnotations(
 		});
 	}
 	return annotations.slice(0, 6);
+}
+
+function buildContextualValidityAnnotations(
+	events: AkashaEvent[],
+	traces: AkashaMemoryTrace[],
+	now?: Date,
+): AkashaMemoryContextualValidityAnnotation[] {
+	if (traces.length === 0) return [];
+	const visibleEvents = now
+		? events.filter((event) => {
+				const eventTime = Date.parse(event.eventTime);
+				return Number.isFinite(eventTime) && eventTime <= now.getTime();
+			})
+		: events;
+	const ledger = buildAkashaClaimLedger(visibleEvents);
+	if (ledger.claims.length === 0) return [];
+
+	const eventsById = new Map(visibleEvents.map((event) => [event.eventId, event]));
+	const annotations = new Map<string, AkashaMemoryContextualValidityAnnotation>();
+	for (const trace of traces) {
+		const sourceEvent = eventsById.get(trace.eventId);
+		const traceTime = sourceEvent?.eventTime ?? trace.createdAt;
+		const activeClaims = activeAkashaClaimsAt(ledger, traceTime);
+		for (const claim of activeClaims) {
+			const explicit = traceExplicitlyDependsOnClaim(trace, claim);
+			const ambient = !explicit && claim.exclusive && claim.status === "superseded";
+			if (!explicit && !ambient) continue;
+
+			const dependency: AkashaMemoryContextDependencyKind = explicit ? "explicit" : "ambient";
+			const useAs = contextualUseAs(claim, dependency);
+			const key = `${claim.claimId}:${dependency}`;
+			const eventIds = uniqueStrings([trace.eventId, ...claimRelatedEventIds(claim)]);
+			const existing = annotations.get(key);
+			if (existing) {
+				existing.traceIds = uniqueStrings([...existing.traceIds, trace.traceId]);
+				existing.eventIds = uniqueStrings([...existing.eventIds, ...eventIds]);
+				continue;
+			}
+			annotations.set(key, {
+				claimId: claim.claimId,
+				claimKey: claim.claimKey,
+				summary: claim.summary,
+				status: claim.status === "superseded" ? "historical" : claim.status,
+				dependency,
+				useAs,
+				traceIds: [trace.traceId],
+				eventIds,
+				reason: contextualReason(claim, dependency, useAs),
+				supersededByClaimId: claim.supersededByClaimId,
+			});
+		}
+	}
+	return [...annotations.values()].sort(compareContextualAnnotations).slice(0, 8);
+}
+
+function traceExplicitlyDependsOnClaim(trace: AkashaMemoryTrace, claim: AkashaClaimRecord): boolean {
+	const traceEventIds = new Set([trace.eventId, ...trace.sourceEventIds]);
+	if (claimRelatedEventIds(claim).some((eventId) => traceEventIds.has(eventId))) return true;
+
+	const traceText = `${trace.key} ${trace.text}`.toLowerCase();
+	if (traceText.includes(claim.claimId.toLowerCase()) || traceText.includes(claim.claimKey.toLowerCase())) {
+		return true;
+	}
+
+	const claimValue = claim.value.trim().toLowerCase();
+	if (claimValue.length >= 2 && traceText.includes(claimValue)) return true;
+
+	const claimSummary = claimText(claim);
+	return sharedTokenCount(claimSummary, traceText) >= 2 || overlap(claimSummary, traceText) >= 0.35;
+}
+
+function contextualUseAs(
+	claim: AkashaClaimRecord,
+	dependency: AkashaMemoryContextDependencyKind,
+): AkashaMemoryContextUseAs {
+	if (claim.status !== "superseded") return "current_context";
+	return dependency === "ambient" ? "possibly_stale_context" : "requires_revalidation";
+}
+
+function contextualReason(
+	claim: AkashaClaimRecord,
+	dependency: AkashaMemoryContextDependencyKind,
+	useAs: AkashaMemoryContextUseAs,
+): string {
+	if (useAs === "current_context") {
+		return "Memory is aligned with an active contextual claim.";
+	}
+	if (dependency === "ambient") {
+		return "Memory was formed while this exclusive claim was active; related assumptions may be stale.";
+	}
+	if (claim.supersededByClaimId) {
+		return "Memory explicitly depends on a claim that has been superseded; revalidate before using it as current context.";
+	}
+	return "Memory explicitly depends on a historical claim; treat it as historical unless revalidated.";
+}
+
+function compareContextualAnnotations(
+	left: AkashaMemoryContextualValidityAnnotation,
+	right: AkashaMemoryContextualValidityAnnotation,
+): number {
+	return contextualPriority(left) - contextualPriority(right) || right.eventIds.length - left.eventIds.length;
+}
+
+function contextualPriority(annotation: AkashaMemoryContextualValidityAnnotation): number {
+	if (annotation.useAs === "requires_revalidation") return 0;
+	if (annotation.useAs === "possibly_stale_context") return 1;
+	if (annotation.useAs === "historical_context") return 2;
+	return 3;
+}
+
+function claimRelatedEventIds(claim: AkashaClaimRecord): string[] {
+	return uniqueStrings([
+		claim.observedEventId,
+		claim.latestEventId,
+		...claim.sourceEventIds,
+		...claim.confirmationEventIds,
+		claim.supersededEventId ?? "",
+		claim.supersededByEventId ?? "",
+	]);
+}
+
+function sharedTokenCount(a: string, b: string): number {
+	const left = tokenizeContext(a);
+	const right = tokenizeContext(b);
+	let matches = 0;
+	for (const token of left) if (right.has(token)) matches++;
+	return matches;
+}
+
+function tokenizeContext(text: string): Set<string> {
+	return new Set(
+		text
+			.toLowerCase()
+			.split(/[^a-z0-9_\-./\u4e00-\u9fff]+/u)
+			.map((part) => part.trim())
+			.filter((part) => part.length >= 2),
+	);
 }
 
 function buildEpisodes(ranked: AkashaMemoryTraceScore[], eventsById: Map<string, AkashaEvent>): AkashaMemoryEpisode[] {

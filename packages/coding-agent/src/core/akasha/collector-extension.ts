@@ -32,6 +32,7 @@ import {
 	appendAkashaCallbackInboxStatus,
 	listAkashaActionableCallbackPrompts,
 } from "./callback-inbox.js";
+import { appendAkashaClaim, claimToolResult, recordClaimSchema } from "./claim-tools.js";
 import { registerAkashaCommands } from "./commands.js";
 import { createAkashaEmbeddingProvider } from "./embedding-provider.js";
 import { JsonlAkashaEmbeddingStore } from "./embedding-store.js";
@@ -369,6 +370,23 @@ export function createAkashaCollectorExtension(options: AkashaCollectorOptions):
 			agentDir: options.agentDir,
 			eventLogDir: options.settings.eventLogDir,
 			reflection: reflectionSettings,
+		});
+
+		akasha.registerTool({
+			name: "akasha_record_claim",
+			label: "akasha claim",
+			description:
+				"Record a generic durable contextual claim with subject, predicate, value, optional scope, and optional exclusivity.",
+			promptSnippet: "Record durable contextual facts in Akasha memory using akasha_record_claim.",
+			promptGuidelines: [
+				"Use akasha_record_claim for durable facts that should affect future memory recall.",
+				"Use plain subject and predicate strings; do not rely on a domain-specific predicate enum.",
+				"Set exclusive=true only when a new value should replace prior current values for the same subject/predicate/scope.",
+				"Include sourceEventIds when the claim is grounded in known Akasha events.",
+			],
+			parameters: recordClaimSchema,
+			execute: async (toolCallId, params, _signal, _onUpdate, ctx) =>
+				claimToolResult(appendAkashaClaim(syscallContext(ctx, toolCallId), params)),
 		});
 
 		akasha.registerTool({

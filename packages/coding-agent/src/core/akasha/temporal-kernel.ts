@@ -354,7 +354,8 @@ export class AkashaTemporalKernel {
 			field.episodes.length === 0 &&
 			field.lessons.length === 0 &&
 			field.procedures.length === 0 &&
-			field.warnings.length === 0
+			field.warnings.length === 0 &&
+			field.contextualValidityAnnotations.length === 0
 		) {
 			return undefined;
 		}

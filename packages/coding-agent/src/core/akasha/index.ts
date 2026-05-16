@@ -54,6 +54,21 @@ export {
 	isAkashaCallbackSafeForAutoRun,
 	runAkashaCallbackRunner,
 } from "./callback-runner.js";
+export type {
+	AkashaClaimIdentityInput,
+	AkashaClaimLedger,
+	AkashaClaimRecord,
+	AkashaClaimStatus,
+} from "./claim-ledger.js";
+export {
+	activeAkashaClaimsAt,
+	buildAkashaClaimLedger,
+	claimText,
+	createAkashaClaimId,
+	createAkashaClaimKey,
+} from "./claim-ledger.js";
+export type { AkashaClaimToolContext, RecordClaimInput } from "./claim-tools.js";
+export { appendAkashaClaim, claimToolResult, recordClaimSchema } from "./claim-tools.js";
 export {
 	createAkashaCollectorExtension,
 	resolveAkashaEmbeddingIndexPath,
@@ -123,6 +138,9 @@ export { projectAkashaGovernedEvents } from "./governance-projection.js";
 export type { AkashaHeartbeatController, AkashaHeartbeatOptions } from "./heartbeat.js";
 export { createAkashaHeartbeat } from "./heartbeat.js";
 export type {
+	AkashaMemoryContextDependencyKind,
+	AkashaMemoryContextUseAs,
+	AkashaMemoryContextualValidityAnnotation,
 	AkashaMemoryEpisode,
 	AkashaMemoryLesson,
 	AkashaMemoryPattern,

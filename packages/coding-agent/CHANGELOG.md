@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added generic Akasha claim events, claim recording, and contextual validity annotations for memories derived under superseded durable context.
 - Added Together AI to built-in provider setup, `/login` API-key auth, and default model resolution ([#3624](https://github.com/7enChan/akasha/pull/3624) by [@Nutlope](https://github.com/Nutlope)).
 
 ### Changed

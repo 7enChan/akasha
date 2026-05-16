@@ -38,7 +38,17 @@ export function createMemoryRecalledDraft(input: {
 			semanticSeedEventIds: input.field.semanticSeedEventIds,
 			semanticSeedReasons: input.field.semanticSeedReasons,
 			procedureIds: input.field.procedures.map((procedure) => procedure.procedureId),
-			sections: ["episodes", "lessons", "procedures", "warnings"].filter((section) =>
+			contextualValidity: input.field.contextualValidityAnnotations.map((annotation) => ({
+				claimId: annotation.claimId,
+				claimKey: annotation.claimKey,
+				status: annotation.status,
+				dependency: annotation.dependency,
+				useAs: annotation.useAs,
+				traceIds: annotation.traceIds,
+				eventIds: annotation.eventIds,
+				supersededByClaimId: annotation.supersededByClaimId,
+			})),
+			sections: ["episodes", "lessons", "procedures", "warnings", "contextual_validity"].filter((section) =>
 				fieldHasSection(input.field, section),
 			),
 			tokenEstimate: input.field.tokenEstimate,
@@ -159,6 +169,7 @@ function fieldHasSection(field: AkashaReconstructedMemoryField, section: string)
 	if (section === "lessons") return field.lessons.length > 0;
 	if (section === "procedures") return field.procedures.length > 0;
 	if (section === "warnings") return field.warnings.length > 0;
+	if (section === "contextual_validity") return field.contextualValidityAnnotations.length > 0;
 	return false;
 }
 
