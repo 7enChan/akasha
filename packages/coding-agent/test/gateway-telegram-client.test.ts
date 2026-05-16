@@ -71,10 +71,11 @@ describe("TelegramClient", () => {
 		await client.sendMessage(123, "# 核心能力\n\n第一段\n\n- 一\n- 二");
 
 		expect(calls[0].body).toMatchObject({
-			text: "<b>核心能力</b>\n第一段\n- 一\n- 二",
+			text: "<b>核心能力</b>&#10;第一段&#10;- 一&#10;- 二",
 			parse_mode: "HTML",
 		});
 		expect((calls[0].body as { text: string }).text).not.toContain("\n\n");
+		expect((calls[0].body as { text: string }).text).not.toContain("\n");
 	});
 
 	it("falls back to stripped plain text when Telegram rejects HTML parsing", async () => {
