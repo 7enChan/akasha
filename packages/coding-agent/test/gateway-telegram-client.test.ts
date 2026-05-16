@@ -36,7 +36,58 @@ describe("TelegramClient", () => {
 		await client.sendMessage(123, "hello");
 
 		expect(calls[0].url).toBe("https://api.telegram.org/bottoken/sendMessage");
-		expect(calls[0].body).toMatchObject({ chat_id: 123, text: "hello" });
+		expect(calls[0].body).toMatchObject({ chat_id: 123, text: "hello", parse_mode: "HTML" });
+	});
+
+	it("formats markdown messages as Telegram HTML", async () => {
+		const calls: Array<{ url: string; body: unknown }> = [];
+		const client = new TelegramClient({
+			token: "token",
+			fetchImpl: fakeFetch(calls, {
+				ok: true,
+				result: { message_id: 1, date: 1, chat: { id: 123, type: "private" } },
+			}),
+		});
+
+		await client.sendMessage(123, "**Akasha** says `hi` and <keeps tags literal>");
+
+		expect(calls[0].body).toMatchObject({
+			chat_id: 123,
+			text: "<b>Akasha</b> says <code>hi</code> and &lt;keeps tags literal&gt;",
+			parse_mode: "HTML",
+		});
+	});
+
+	it("falls back to stripped plain text when Telegram rejects HTML parsing", async () => {
+		const calls: Array<{ url: string; body: unknown }> = [];
+		const client = new TelegramClient({
+			token: "token",
+			fetchImpl: fakeFetchSequence(calls, [
+				{
+					status: 400,
+					payload: {
+						ok: false,
+						description: "Bad Request: can't parse entities: Unsupported start tag",
+					},
+				},
+				{
+					payload: {
+						ok: true,
+						result: { message_id: 2, date: 1, chat: { id: 123, type: "private" } },
+					},
+				},
+			]),
+		});
+
+		await client.sendMessage(123, "**Akasha** says `hi`");
+
+		expect(calls).toHaveLength(2);
+		expect(calls[0].body).toMatchObject({
+			text: "<b>Akasha</b> says <code>hi</code>",
+			parse_mode: "HTML",
+		});
+		expect(calls[1].body).toMatchObject({ text: "Akasha says hi" });
+		expect(calls[1].body).not.toHaveProperty("parse_mode");
 	});
 
 	it("registers native Telegram command menus", async () => {
@@ -106,13 +157,24 @@ describe("TelegramClient", () => {
 });
 
 function fakeFetch(calls: Array<{ url: string; body: unknown }>, payload: unknown, status = 200): TelegramFetch {
+	return fakeFetchSequence(calls, [{ payload, status }]);
+}
+
+function fakeFetchSequence(
+	calls: Array<{ url: string; body: unknown }>,
+	responses: Array<{ payload: unknown; status?: number }>,
+): TelegramFetch {
+	let index = 0;
 	return (async (url, init) => {
 		const bodyText = typeof init?.body === "string" ? init.body : "{}";
 		calls.push({ url: String(url), body: JSON.parse(bodyText) });
+		const response = responses[Math.min(index, responses.length - 1)];
+		index++;
+		const status = response?.status ?? 200;
 		return {
 			ok: status >= 200 && status < 300,
 			status,
-			json: async () => payload,
+			json: async () => response?.payload,
 			arrayBuffer: async () => new ArrayBuffer(0),
 		} as Awaited<ReturnType<TelegramFetch>>;
 	}) as TelegramFetch;

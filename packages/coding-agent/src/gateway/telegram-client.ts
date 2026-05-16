@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { FormData, fetch } from "undici";
 import { classifyMediaPath } from "./media.js";
+import { formatTelegramMessageText } from "./telegram-format.js";
 
 export interface TelegramUser {
 	id: number;
@@ -118,11 +119,22 @@ export class TelegramClient {
 	}
 
 	async sendMessage(chatId: string | number, text: string): Promise<TelegramMessage> {
-		return this.call<TelegramMessage>("sendMessage", {
-			chat_id: chatId,
-			text,
-			disable_web_page_preview: true,
-		});
+		const formatted = formatTelegramMessageText(text);
+		try {
+			return await this.call<TelegramMessage>("sendMessage", {
+				chat_id: chatId,
+				text: formatted.text,
+				parse_mode: formatted.parseMode,
+				disable_web_page_preview: true,
+			});
+		} catch (error) {
+			if (!isTelegramParseError(error)) throw error;
+			return this.call<TelegramMessage>("sendMessage", {
+				chat_id: chatId,
+				text: formatted.plainText,
+				disable_web_page_preview: true,
+			});
+		}
 	}
 
 	async sendChatAction(chatId: string | number, action = "typing"): Promise<boolean> {
@@ -247,4 +259,14 @@ function extractErrorCode(error: Error): string | undefined {
 	if (typeof record.code === "string") return record.code;
 	if (record.cause instanceof Error) return extractErrorCode(record.cause);
 	return undefined;
+}
+
+function isTelegramParseError(error: unknown): boolean {
+	if (!(error instanceof TelegramApiError) || error.status !== 400) return false;
+	const message = error.message.toLowerCase();
+	return (
+		message.includes("can't parse entities") ||
+		message.includes("parse entities") ||
+		message.includes("unsupported start tag")
+	);
 }
